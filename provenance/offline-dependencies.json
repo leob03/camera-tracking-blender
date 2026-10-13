@@ -1,0 +1,225 @@
+{
+  "scope": "Actual local ComfyUI additions and selected inherited worker packages; not a complete offline lock or wheelhouse",
+  "comfy_additions": [
+    {
+      "name": "aiohappyeyeballs",
+      "version": "2.7.1"
+    },
+    {
+      "name": "aiohttp",
+      "version": "3.14.5"
+    },
+    {
+      "name": "aiosignal",
+      "version": "1.4.0"
+    },
+    {
+      "name": "alembic",
+      "version": "1.20.0"
+    },
+    {
+      "name": "async-timeout",
+      "version": "5.0.1"
+    },
+    {
+      "name": "av",
+      "version": "17.1.0"
+    },
+    {
+      "name": "blake3",
+      "version": "1.0.10"
+    },
+    {
+      "name": "comfy-aimdo",
+      "version": "0.5.5"
+    },
+    {
+      "name": "comfy-angle",
+      "version": "0.1.1"
+    },
+    {
+      "name": "comfy-kitchen",
+      "version": "0.2.35"
+    },
+    {
+      "name": "comfyui-embedded-docs",
+      "version": "0.5.12"
+    },
+    {
+      "name": "comfyui-workflow-templates-core",
+      "version": "0.3.360"
+    },
+    {
+      "name": "comfyui-workflow-templates-json",
+      "version": "0.1.95"
+    },
+    {
+      "name": "comfyui-workflow-templates-media-api",
+      "version": "0.3.84"
+    },
+    {
+      "name": "comfyui-workflow-templates-media-assets-01",
+      "version": "0.1.48"
+    },
+    {
+      "name": "comfyui-workflow-templates-media-assets-02",
+      "version": "0.1.5"
+    },
+    {
+      "name": "comfyui-workflow-templates-media-image",
+      "version": "0.3.160"
+    },
+    {
+      "name": "comfyui-workflow-templates-media-other",
+      "version": "0.3.229"
+    },
+    {
+      "name": "comfyui-workflow-templates-media-video",
+      "version": "0.3.101"
+    },
+    {
+      "name": "comfyui_frontend_package",
+      "version": "1.52.7"
+    },
+    {
+      "name": "comfyui_workflow_templates",
+      "version": "0.11.69"
+    },
+    {
+      "name": "frozenlist",
+      "version": "1.8.0"
+    },
+    {
+      "name": "greenlet",
+      "version": "3.5.6"
+    },
+    {
+      "name": "Mako",
+      "version": "1.4.3"
+    },
+    {
+      "name": "multidict",
+      "version": "7.1.0"
+    },
+    {
+      "name": "propcache",
+      "version": "0.5.4"
+    },
+    {
+      "name": "pydantic-settings",
+      "version": "2.15.0"
+    },
+    {
+      "name": "PyOpenGL",
+      "version": "3.1.10"
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.2.4"
+    },
+    {
+      "name": "sentencepiece",
+      "version": "0.2.2"
+    },
+    {
+      "name": "simpleeval",
+      "version": "1.0.8"
+    },
+    {
+      "name": "spandrel",
+      "version": "0.4.2"
+    },
+    {
+      "name": "SQLAlchemy",
+      "version": "2.0.54"
+    },
+    {
+      "name": "torchaudio",
+      "version": "2.9.0"
+    },
+    {
+      "name": "torchsde",
+      "version": "0.2.6"
+    },
+    {
+      "name": "trampoline",
+      "version": "0.1.2"
+    },
+    {
+      "name": "yarl",
+      "version": "1.25.1"
+    }
+  ],
+  "selected_effective_versions": {
+    "torch": "2.9.0+cu128",
+    "torchvision": "0.24.0+cu128",
+    "torchaudio": "2.9.0",
+    "numpy": "2.2.6",
+    "opencv-python": "4.13.0.92",
+    "hydra-core": "1.3.2",
+    "omegaconf": "2.3.0",
+    "transformers": "4.57.6",
+    "huggingface-hub": "0.36.2",
+    "safetensors": "0.7.0",
+    "timm": "1.0.27",
+    "einops": "0.8.2",
+    "kornia": "0.8.2",
+    "scipy": "1.15.3",
+    "Pillow": "12.2.0",
+    "imageio": "2.37.3",
+    "imageio-ffmpeg": "0.6.0",
+    "ninja": "1.13.0",
+    "OpenEXR": "3.2.9",
+    "nvidia-vipe": "1.2.0",
+    "lietorch": "not a separate installed distribution"
+  },
+  "comfy_core_modified": false,
+  "comfy_requirements_modified": false,
+  "comfy_version": "0.37.2",
+  "custom_node_pack": "comfyui_vipe_remote",
+  "comfy_addition_count": 37,
+  "worker_environment": "Existing reviewed ViPE Python environment, separate subprocess",
+  "models_for_current_recipe": [
+    {
+      "model": "GeoCalib pinhole",
+      "location": "TORCH_HOME/hub/geocalib/pinhole.tar"
+    },
+    {
+      "model": "SAM ViT-B",
+      "location": "TORCH_HOME/hub/sam/sam_vit_b_01ec64.pth"
+    },
+    {
+      "model": "DeAOT",
+      "location": "TORCH_HOME/hub/aot/R50_DeAOTL_PRE_YTB_DAV.pth"
+    },
+    {
+      "model": "GroundingDINO Swin-T",
+      "location": "TORCH_HOME/hub/checkpoints/groundingdino_swint_ogc.pth"
+    },
+    {
+      "model": "GroundingDINO text encoder and tokenizer",
+      "location": "HF_HOME cache: configured text encoder (BERT base uncased in this recipe); include tokenizer and configuration files"
+    },
+    {
+      "model": "DROID network",
+      "location": "TORCH_HOME/hub/droid_slam/droid.pth"
+    },
+    {
+      "model": "UniDepth V2 ViT-L",
+      "location": "HF_HOME cache: lpiccinelli/unidepth-v2-vitl14; include model configuration and any required backbone assets"
+    }
+  ],
+  "offline_flags_used": [
+    "HF_HUB_OFFLINE=1",
+    "TRANSFORMERS_OFFLINE=1"
+  ],
+  "network_isolated_container_test_performed": false,
+  "container_image_built": false,
+  "notes": [
+    "Model entries are loader references, not a complete file/checksum manifest.",
+    "Torch Hub and gdown can still try the network when weights are missing; HF flags alone do not prevent that.",
+    "The local ComfyUI environment uses a .pth link to existing ViPE packages. Build self-contained environments in the production image.",
+    "Native ViPE extensions must be built for the container Python, Torch/CUDA versions and target worker GPU architectures.",
+    "ComfyUI frontend wheels include static browser assets needed offline."
+  ]
+}

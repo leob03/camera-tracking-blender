@@ -1,0 +1,102 @@
+{
+  "hardware": "NVIDIA Quadro RTX 5000, 16 GB VRAM; Linux workstation",
+  "method": "Serial full-shot workers; one observation per condition; fresh independent evidence; cached model weights. No transfer, queue or Blender import time. Dense environment disabled.",
+  "runs": [
+    {
+      "shot": "skateboard",
+      "review_witnesses": false,
+      "wall_seconds": 128.03285509600028,
+      "timings": {
+        "camera_solve": 127.69743894300336,
+        "worker_total": 127.70053908299815
+      },
+      "settings": {
+        "frame_start": 1,
+        "frame_end": 0,
+        "max_dimension": 1280,
+        "masking": true,
+        "mask_phrases": "person,animal,vehicle,ball,balloon,gun,pet,car,bus",
+        "lens_mode": "auto",
+        "focal_mm": 35.0,
+        "sensor_mm": 36.0,
+        "max_points": 30000,
+        "review_witnesses": false,
+        "dense_environment": false
+      },
+      "source_sha256": "3ed0d762c8c8335c12c1ca7f65f66fcb760296654023c63600c93897d7164c0f"
+    },
+    {
+      "shot": "skateboard",
+      "review_witnesses": true,
+      "wall_seconds": 320.1495617670007,
+      "timings": {
+        "camera_solve": 126.59132369299914,
+        "review_witnesses": 193.35087104299964,
+        "worker_total": 319.955919758002
+      },
+      "settings": {
+        "frame_start": 1,
+        "frame_end": 0,
+        "max_dimension": 1280,
+        "masking": true,
+        "mask_phrases": "person,animal,vehicle,ball,balloon,gun,pet,car,bus",
+        "lens_mode": "auto",
+        "focal_mm": 35.0,
+        "sensor_mm": 36.0,
+        "max_points": 30000,
+        "review_witnesses": true,
+        "dense_environment": false
+      },
+      "source_sha256": "3ed0d762c8c8335c12c1ca7f65f66fcb760296654023c63600c93897d7164c0f",
+      "evidence_reused": false
+    },
+    {
+      "shot": "skateboard_alley",
+      "review_witnesses": false,
+      "wall_seconds": 124.02968432899797,
+      "timings": {
+        "camera_solve": 122.80062181500034,
+        "worker_total": 122.80381609899996
+      },
+      "settings": {
+        "frame_start": 1,
+        "frame_end": 0,
+        "max_dimension": 1280,
+        "masking": true,
+        "mask_phrases": "person,animal,vehicle,ball,balloon,gun,pet,car,bus",
+        "lens_mode": "auto",
+        "focal_mm": 35.0,
+        "sensor_mm": 36.0,
+        "max_points": 30000,
+        "review_witnesses": false,
+        "dense_environment": false
+      },
+      "source_sha256": "257b0c4e495803ba2b6f4e5ba7a88384275a9f14db609a331c1725fbf9ded768"
+    },
+    {
+      "shot": "skateboard_alley",
+      "review_witnesses": true,
+      "wall_seconds": 364.0846027309999,
+      "timings": {
+        "camera_solve": 123.18297199199878,
+        "review_witnesses": 240.5317394470003,
+        "worker_total": 363.7291229500006
+      },
+      "settings": {
+        "frame_start": 1,
+        "frame_end": 0,
+        "max_dimension": 1280,
+        "masking": true,
+        "mask_phrases": "person,animal,vehicle,ball,balloon,gun,pet,car,bus",
+        "lens_mode": "auto",
+        "focal_mm": 35.0,
+        "sensor_mm": 36.0,
+        "max_points": 30000,
+        "review_witnesses": true,
+        "dense_environment": false
+      },
+      "source_sha256": "257b0c4e495803ba2b6f4e5ba7a88384275a9f14db609a331c1725fbf9ded768",
+      "evidence_reused": false
+    }
+  ]
+}

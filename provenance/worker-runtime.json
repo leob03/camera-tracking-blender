@@ -1,0 +1,16 @@
+{
+  "scope": "Selected interfaces used by this worker; not a complete source-tree inventory",
+  "vipe_reported_commit": "44ad630bc4e01666ace74cbccdacddc4de2fc0be",
+  "upstream_base": "95a8816947602ddc26fcb7a80bea4f9313059578",
+  "files": {
+    "pyproject.toml": "712a79270a4c48f3f9eb979f54007a5119f9e30a64b2a706f4bd03d24aa5b127",
+    "vipe/pipeline/default.py": "73aff1837b2f59e59eb70a8f248f3a6fd86c504390bdb4c3d403ac9ce770e457",
+    "vipe/pipeline/processors.py": "db6e2d893043f0cfb357f9af3f0b9dd90374b2c0dafa767c40f289ad4201a9ba",
+    "vipe/slam/interface.py": "9e89ec1ec2803a5f1e252f7ed0ed0d0f29df7cc4719978a2a8058c681b579792",
+    "vipe/streams/base.py": "62075b204e164d4d79e245aa5c568f36ab2e52997e9e5fd389a35f4f241f2189",
+    "vipe/streams/disk_store.py": "837112b994903e89d624ae6ffcf9108eb92d2d3624fd2de1ae1e6594cfc0c0c3",
+    "vipe/utils/io.py": "02aee2f37682957eb38bf830c9ef724724658aea3e450649926a44a49a945281",
+    "vipe/priors/depth/videodepthanything/__init__.py": "68924cae2e57ed5f4ebd54f914ce76ad8ec595adeb001a60228cf4d071a08f16",
+    "vipe/priors/depth/priorda/__init__.py": "99f11442c3769f3c300c881fe989964b41654613062a3b8ce1277cf988a1c9d5"
+  }
+}

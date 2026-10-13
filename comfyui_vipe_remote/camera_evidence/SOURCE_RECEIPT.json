@@ -1,0 +1,16 @@
+{
+  "source": "camera-evidence study snapshot",
+  "original_sha256": {
+    "__init__.py": "279bfcea845766df31b878eed6ee3501b446fe828801a5bd1eddc506f5dfbdeb",
+    "audit.py": "7cb000f80f8b874e68017acff339dd4b4bf697224e72685d0d6009ed00b9ecff",
+    "evaluate.py": "fe436ff33c188b068be4b496b654d11b1f72901e2d97d628aa2c27c0508763e3",
+    "cameras.py": "5dad113dc6fe826a786af492cecb0f67bc3276f308295580871c05e5391e9ff6",
+    "tapir_tracks.py": "584c8a170f0697871a4274e9b661fc706aa131228e64adaedc1d2e584586f563",
+    "cotracker_tracks.py": "b96cb7156b1dad69861311d2e4c52efa937ebf1ad1aa94405e1552057107b468"
+  },
+  "adaptations": [
+    "Direct Git metadata reads replace git rev-parse",
+    "Require cached DeepLab weights before model load"
+  ],
+  "numerical_recipe_changed": false
+}

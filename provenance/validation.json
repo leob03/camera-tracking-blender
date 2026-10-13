@@ -1,0 +1,51 @@
+{
+  "dense_only": {
+    "state": "PASS",
+    "real_bundle": true,
+    "views": 12,
+    "points": 519734,
+    "maximum_projection_error_pixels": 9.156049506752804e-05,
+    "packed_textures": true,
+    "heavy_geometry_hidden": true,
+    "defaults_verified": true,
+    "invalid_faces_rejected": true
+  },
+  "combined": {
+    "state": "PASS",
+    "real_bundle": true,
+    "views": 12,
+    "points": 519753,
+    "maximum_projection_error_pixels": 7.141012205603705e-05,
+    "packed_textures": true,
+    "heavy_geometry_hidden": true,
+    "defaults_verified": true,
+    "invalid_faces_rejected": true
+  },
+  "installation": {
+    "state": "PASS",
+    "blender": "4.2.3 LTS",
+    "addon_version": "0.4.0",
+    "installed_from_zip": true,
+    "worker_connection": true,
+    "legacy_witness_bundle_import": true
+  },
+  "full_skateboard_alley": {
+    "state": "PASS",
+    "real_bundle": true,
+    "views": 12,
+    "points": 493722,
+    "maximum_projection_error_pixels": 0.00028541808950818435,
+    "witnesses": 0,
+    "source_movie": true,
+    "packed_textures": true,
+    "heavy_geometry_hidden": true,
+    "defaults_verified": true,
+    "invalid_faces_rejected": true,
+    "timings_seconds": {
+      "camera_solve": 129.4027452570008,
+      "dense_environment": 192.37314546700145,
+      "worker_total": 321.82474016299966
+    },
+    "camera_sha256_unchanged": true
+  }
+}

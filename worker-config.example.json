@@ -1,0 +1,18 @@
+{
+  "vipe_root": "/opt/vipe",
+  "vipe_python": "/opt/vipe/.venv/bin/python",
+  "torch_home": "/models/torch",
+  "hf_home": "/models/huggingface",
+  "ffmpeg": "/usr/bin/ffmpeg",
+  "ffprobe": "/usr/bin/ffprobe",
+  "work_directory": "/var/tmp/vipe-jobs",
+  "cpu_threads": 2,
+  "gpu_memory_fraction": 0.9,
+  "slam_buffer_limit": 1024,
+  "max_upload_bytes": 1073741824,
+  "min_free_disk_bytes": 2147483648,
+  "cotracker_repository": "/opt/camera-tracking/vendor/cotracker",
+  "cotracker_checkpoint": "/opt/camera-tracking/vendor/checkpoints/scaled_offline.pth",
+  "evidence_cache_directory": "/opt/comfy-runtime/evidence",
+  "evidence_max_frames": 1500
+}

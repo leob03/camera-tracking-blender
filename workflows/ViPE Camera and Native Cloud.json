@@ -1,0 +1,133 @@
+{
+  "last_node_id": 3,
+  "last_link_id": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "ViPEVideoInput",
+      "pos": [
+        50,
+        120
+      ],
+      "size": [
+        370,
+        170
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "plate",
+          "type": "VIPE_VIDEO",
+          "links": [
+            1
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ViPEVideoInput"
+      },
+      "widgets_values": [
+        "",
+        "plate.mp4"
+      ],
+      "color": "#234",
+      "bgcolor": "#345"
+    },
+    {
+      "id": 2,
+      "type": "ViPETrackVideo",
+      "pos": [
+        480,
+        120
+      ],
+      "size": [
+        440,
+        600
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "plate",
+          "type": "VIPE_VIDEO",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "result_bundle",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ViPETrackVideo"
+      },
+      "widgets_values": [
+        1,
+        0,
+        1280,
+        true,
+        "person,animal,vehicle,ball,balloon,gun,pet,car,bus",
+        "auto",
+        35,
+        36,
+        30000,
+        true,
+        false
+      ],
+      "color": "#243",
+      "bgcolor": "#354"
+    },
+    {
+      "id": 3,
+      "type": "Note",
+      "pos": [
+        980,
+        120
+      ],
+      "size": [
+        350,
+        530
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "CAMERA TRACKING + OPTIONAL OUTPUTS\n\nUpload a video, then Run. First frame is 1; last 0 means the end.\n\nCore: prepare plate \u2192 GeoCalib lens \u2192 TrackAnything masks \u2192 UniDepth-assisted stock SLAM \u2192 final bundle adjustment \u2192 trajectory completion \u2192 native cloud.\n\nreview_witnesses (default ON): independent CoTracker3 + DeepLab observations; triangulate through the frozen camera for original artist crosses in Blender. Adds time; never improves the camera.\n\ndense_environment (default OFF): post-SLAM adaptive UniDepth / Video Depth Anything, then 12 static sampled views using the actual solve masks. Accumulated colored samples and textured per-view surfaces; not a watertight mesh.\n\nDownload the bundle and select the matching original movie in Blender. Use Show Dense Environment to inspect the additional geometry. New imports start in Solid camera review with heavy geometry hidden."
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "VIPE_VIDEO"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 1,
+      "offset": [
+        20,
+        10
+      ]
+    }
+  },
+  "version": 0.4
+}

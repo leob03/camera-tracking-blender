@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+worker-config.json
+runtime/
+artifacts/
+dist/
+*.blend
+*.blend1
+*.mp4
+*.mov
+*.pth
+*.pt
+*.safetensors
