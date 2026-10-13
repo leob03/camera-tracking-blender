@@ -15,9 +15,18 @@ from bpy_extras.io_utils import ImportHelper
 from .bundle import load_bundle
 from .client import Client, Detached, JobCancelled
 from .importer import import_bundle
+from .job_logs import LogBuffer
 
 
 _active = None
+_log_buffers = {}
+
+
+def _follow_log_changed(props, context):
+    if props.follow_job_log:
+        buffer = _log_buffers.get(props.job_id)
+        if buffer is not None:
+            _display_log(props, buffer.snapshot()[1])
 
 
 class ViPERemotePreferences(bpy.types.AddonPreferences):
@@ -59,6 +68,9 @@ class ViPERemoteProperties(bpy.types.PropertyGroup):
     state: StringProperty(default="IDLE")
     progress: FloatProperty(default=0, min=0, max=1, options={'SKIP_SAVE'})
     busy: BoolProperty(default=False, options={'SKIP_SAVE'})
+    echo_job_logs: BoolProperty(name="Echo logs to terminal", default=True, description="Print live worker output in the terminal used to launch Blender")
+    follow_job_log: BoolProperty(name="Follow live output", default=True, update=_follow_log_changed, description="Keep the log editor at the latest output; disable to pause the editor for inspection while the job continues")
+    log_text_name: StringProperty(options={'HIDDEN'})
     lens_summary: StringProperty(options={'HIDDEN'})
 
 
@@ -74,6 +86,30 @@ def _notify_redraw():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+
+def _job_log_text(props):
+    name = 'ViPE Log ' + (props.job_id or 'connection')
+    text = bpy.data.texts.get(name) or bpy.data.texts.new(name)
+    props.log_text_name = text.name
+    return text
+
+
+def _display_log(props, contents):
+    text = _job_log_text(props)
+    text.clear()
+    text.write(contents)
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == 'TEXT_EDITOR' and area.spaces.active.text == text:
+                region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+                if region is not None:
+                    try:
+                        with bpy.context.temp_override(window=window, area=area, region=region):
+                            bpy.ops.text.move(type='FILE_BOTTOM')
+                    except RuntimeError:
+                        pass  # A temporarily unavailable editor must not stop job monitoring.
                 area.tag_redraw()
 
 
@@ -100,12 +136,21 @@ def _import(props, record):
     return collection
 
 
-def _run_network(mode, record, url, token, events, cancel, detach):
+def _run_network(mode, record, url, token, events, cancel, detach, log_buffer):
     def emit(kind, value):
         events.put((kind, value))
+    def log_output(value):
+        clean = log_buffer.append(value)
+        if clean and log_buffer.echo:
+            try:
+                print(clean, end='', flush=True)
+            except OSError:
+                log_buffer.echo = False
     last_progress = [None, 0.0]
     def progress(message, fraction):
         now = time.monotonic()
+        if last_progress[0] != message:
+            log_output(f"\n[ViPE {record.get('job_id', '')[:8]}] {message}\n")
         if last_progress[0] != message or now - last_progress[1] > 0.2:
             emit('progress', (message, fraction))
             last_progress[:] = [message, now]
@@ -131,7 +176,7 @@ def _run_network(mode, record, url, token, events, cancel, detach):
             emit('record', dict(record))
             workflow = client.submit(uploaded, Path(record['source']).name, record['settings'], record['job_id'])
             (folder / 'workflow_api.json').write_text(json.dumps(workflow, indent=2), encoding='utf-8')
-        item = client.wait(record['job_id'], progress, cancel.is_set, detach.is_set)
+        item = client.wait(record['job_id'], progress, cancel.is_set, detach.is_set, log=log_output)
         result = client.download(item, folder / 'result.zip', progress, lambda: detach.is_set() or cancel.is_set())
         manifest, _, _ = load_bundle(result, record.get('source_sha256'))
         if manifest['job_id'] != record['job_id']:
@@ -148,10 +193,12 @@ def _run_network(mode, record, url, token, events, cancel, detach):
                 raise ValueError('The local plate changed after submission. Restore that source version before importing.')
         emit('ready', record)
     except JobCancelled as exc:
+        log_output(f'\n[ViPE] {exc}\n')
         emit('cancelled', str(exc))
     except Detached as exc:
         emit('detached', str(exc))
     except Exception as exc:
+        log_output(f'\n[ViPE error] {exc}\n')
         emit('error', str(exc))
     finally:
         emit('finished', None)
@@ -168,6 +215,7 @@ def _poll():
         active['detach'].set()
         _active = None
         return None
+    active['log_buffer'].echo = props.echo_job_logs
     finished = False
     for _ in range(100):
         try:
@@ -194,12 +242,14 @@ def _poll():
         elif kind == 'connected':
             props.status = value
         elif kind == 'log':
-            text = bpy.data.texts.get('ViPE Job Log') or bpy.data.texts.new('ViPE Job Log')
-            text.clear()
-            text.write(value)
-            props.status = "Log loaded into the 'ViPE Job Log' text block."
+            _display_log(props, value)
+            props.status = 'Log loaded. Use Open Live Log to view it.'
         elif kind == 'finished':
             finished = True
+    revision, contents = active['log_buffer'].snapshot()
+    if active['mode'] in ('submit', 'resume') and props.follow_job_log and revision != active['log_revision']:
+        _display_log(props, contents)
+        active['log_revision'] = revision
     _notify_redraw()
     if finished:
         props.busy = False
@@ -215,8 +265,17 @@ def _launch(context, mode, record):
     prefs = preferences(context)
     events, cancel, detach = queue.Queue(), threading.Event(), threading.Event()
     url = record.get('server', prefs.worker_url)
-    thread = threading.Thread(target=_run_network, args=(mode, record, url, prefs.token, events, cancel, detach), daemon=True, name='ViPE-HTTP')
-    _active = {'thread': thread, 'events': events, 'cancel': cancel, 'detach': detach, 'scene': context.scene, 'mode': mode}
+    log_buffer = LogBuffer()
+    log_buffer.echo = context.scene.vipe_remote.echo_job_logs
+    if mode in ('submit', 'resume'):
+        _log_buffers.pop(record['job_id'], None)
+        _log_buffers[record['job_id']] = log_buffer
+        while len(_log_buffers) > 4:
+            del _log_buffers[next(iter(_log_buffers))]
+        log_buffer.append(f"ViPE job {record['job_id']}\nFollowing worker output…\n")
+        _display_log(context.scene.vipe_remote, log_buffer.snapshot()[1])
+    thread = threading.Thread(target=_run_network, args=(mode, record, url, prefs.token, events, cancel, detach, log_buffer), daemon=True, name='ViPE-HTTP')
+    _active = {'thread': thread, 'events': events, 'cancel': cancel, 'detach': detach, 'scene': context.scene, 'mode': mode, 'log_buffer': log_buffer, 'log_revision': 0}
     context.scene.vipe_remote.busy = True
     thread.start()
     bpy.app.timers.register(_poll, first_interval=0.1)
@@ -356,6 +415,36 @@ class VIPE_OT_log(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class VIPE_OT_open_log(bpy.types.Operator):
+    bl_idname = 'vipe_remote.open_log'
+    bl_label = 'Open Live Log'
+    bl_description = 'Show this job’s live output in a Text Editor beside the viewport'
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.scene.vipe_remote.job_id) and context.area is not None
+
+    def execute(self, context):
+        text = _job_log_text(context.scene.vipe_remote)
+        target = next((a for a in context.screen.areas if a.type == 'TEXT_EDITOR' and a.spaces.active.text == text), None)
+        if target is None:
+            before = {a.as_pointer() for a in context.screen.areas}
+            bpy.ops.screen.area_split(direction='HORIZONTAL', factor=0.35)
+            target = next((a for a in context.screen.areas if a.as_pointer() not in before), None)
+            if target is None:
+                self.report({'WARNING'}, 'Select the job log in any Blender Text Editor.')
+                return {'CANCELLED'}
+            target.type = 'TEXT_EDITOR'
+        target.spaces.active.text = text
+        target.spaces.active.show_word_wrap = True
+        target.spaces.active.show_line_numbers = False
+        region = next((r for r in target.regions if r.type == 'WINDOW'), None)
+        if region is not None:
+            with context.temp_override(area=target, region=region):
+                bpy.ops.text.move(type='FILE_BOTTOM')
+        return {'FINISHED'}
+
+
 class VIPE_OT_view_environment(bpy.types.Operator):
     bl_idname = 'vipe_remote.view_environment'
     bl_label = 'Show Dense Environment'
@@ -444,6 +533,10 @@ class VIPE_PT_panel(bpy.types.Panel):
             row.enabled = not props.busy
             row.operator('vipe_remote.resume', icon='FILE_REFRESH')
             row.operator('vipe_remote.log', icon='TEXT')
+            logs = layout.box()
+            logs.operator('vipe_remote.open_log', icon='TEXT')
+            logs.prop(props, 'echo_job_logs')
+            logs.prop(props, 'follow_job_log')
         row = layout.row(align=True)
         row.enabled = not props.busy
         row.operator('vipe_remote.import_cached', icon='IMPORT')
@@ -460,9 +553,10 @@ def _before_load(_):
         _active = None
     if bpy.app.timers.is_registered(_poll):
         bpy.app.timers.unregister(_poll)
+    _log_buffers.clear()
 
 
-CLASSES = [ViPERemotePreferences, ViPERemoteProperties, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_view_environment, VIPE_PT_panel]
+CLASSES = [ViPERemotePreferences, ViPERemoteProperties, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_PT_panel]
 
 
 def register():

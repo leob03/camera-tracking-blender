@@ -3,7 +3,7 @@
 ## Install
 
 1. Build the packages, or obtain the built add-on ZIP from the project maintainer.
-2. In Blender 4.2, open Preferences → Add-ons → Install from Disk. Select `vipe_remote-0.4.0.zip` and enable **ViPE Remote Tracking**.
+2. In Blender 4.2, open Preferences → Add-ons → Install from Disk. Select `vipe_remote-0.4.1.zip` and enable **ViPE Remote Tracking**.
 3. In the 3D View sidebar (N), open **ViPE Remote → Worker connection**.
 4. Enter the worker URL and click **Check Connection**. `127.0.0.1` refers to the computer running Blender. Use your worker address, gateway or SSH tunnel for a different computer.
 
@@ -45,3 +45,15 @@ The movie remains an external local file. Dense texture images and cross meshes 
 ## Interpreting witnesses
 
 CoTracker tracks image features independently of ViPE, but its 3D landmarks are triangulated using the solved camera. Conditioning and placement filter the available landmarks, so good-looking crosses are useful spot checks, not proof that the whole trajectory is correct. Inspect varied depths and the full shot. Cross orientation is a display choice; the anchored origin is the tracked point.
+
+## Live job logs (add-on 0.4.1)
+
+New submissions and **Resume Job** automatically follow worker output about once per second. **Echo logs to terminal** is enabled by default: launch Blender from a terminal to see the worker's stdout/stderr alongside Blender messages. On Windows, Blender's Window → Toggle System Console provides a console view.
+
+Click **Open Live Log** while a job is running to open its log in a Text Editor beside the viewport. Clicking again reuses that editor. Disable **Follow live output** to pause editor updates and scroll through a message; the job and terminal output continue. Enable it again to catch up, including after the job finishes. Each job has its own `ViPE Log <job-id>` text block.
+
+The editor retains the latest 262,144 characters. Resume starts with recent worker output, and bounded catch-up may omit older bytes; the display labels any omission. The complete underlying log stays at `<work_directory>/<job-id>/worker.log` on the worker. **Read Job Log** still fetches a recent snapshot for completed jobs.
+
+Log polling opens only the selected job file, reads at most 32 KiB per request and closes it immediately. There are no storage scans or additional GPU processes. A log endpoint failure does not fail the tracking job. The worker writes Python output unbuffered; CoTracker reports each tracking window. Other stages can still be quiet between their own messages.
+
+Install both updated packages and restart ComfyUI when its queue is idle. The incremental endpoint requires node pack 0.3.1; older workers retain the manual snapshot endpoint. Restart Blender to load the updated add-on.

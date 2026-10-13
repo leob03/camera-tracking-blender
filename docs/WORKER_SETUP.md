@@ -27,7 +27,7 @@ Preflight checks interfaces and configured files. A passing preflight is not an 
 python scripts/build_packages.py
 ```
 
-Extract `dist/comfyui_vipe_remote-0.3.0.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
+Extract `dist/comfyui_vipe_remote-0.3.1.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
 
 Set `VIPE_WORKER_CONFIG` in the ComfyUI server environment, then restart ComfyUI:
 

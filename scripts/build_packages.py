@@ -6,8 +6,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = {
-    'vipe_remote': ['__init__.py', 'addon.py', 'bundle.py', 'client.py', 'importer.py', 'artist_witnesses.py', 'environment.py', 'assets/axis_shaped_cross.glb'],
-    'comfyui_vipe_remote': ['__init__.py', 'worker.py', 'evidence_stage.py', 'dense_stage.py', 'web/vipe.js', 'camera_evidence/__init__.py', 'camera_evidence/audit.py', 'camera_evidence/evaluate.py', 'camera_evidence/cameras.py', 'camera_evidence/tapir_tracks.py', 'camera_evidence/cotracker_tracks.py', 'camera_evidence/SOURCE_RECEIPT.json'],
+    'vipe_remote': ['__init__.py', 'addon.py', 'bundle.py', 'client.py', 'job_logs.py', 'importer.py', 'artist_witnesses.py', 'environment.py', 'assets/axis_shaped_cross.glb'],
+    'comfyui_vipe_remote': ['__init__.py', 'worker.py', 'log_tail.py', 'evidence_stage.py', 'dense_stage.py', 'web/vipe.js', 'camera_evidence/__init__.py', 'camera_evidence/audit.py', 'camera_evidence/evaluate.py', 'camera_evidence/cameras.py', 'camera_evidence/tapir_tracks.py', 'camera_evidence/cotracker_tracks.py', 'camera_evidence/SOURCE_RECEIPT.json'],
 }
 
 def build():
@@ -15,7 +15,7 @@ def build():
     output.mkdir(exist_ok=True)
     receipt = {}
     for package, names in PACKAGES.items():
-        version = '0.3.0' if package == 'comfyui_vipe_remote' else '0.4.0'
+        version = '0.3.1' if package == 'comfyui_vipe_remote' else '0.4.1'
         destination = output / (package + '-' + version + '.zip')
         with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as archive:
             for name in names:

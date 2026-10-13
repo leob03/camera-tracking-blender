@@ -18,6 +18,7 @@ def write_status(work, state, message, progress):
     temp = work / "status.tmp"
     temp.write_text(json.dumps(data), encoding="utf-8")
     temp.replace(work / "status.json")
+    print(f"[ViPE] {state}: {message}", flush=True)
 
 
 def digest(path):

@@ -111,7 +111,16 @@ class Client:
     def cancel(self, identifier):
         return self.request("POST", f"/api/jobs/{str(uuid.UUID(identifier))}/cancel", {})
 
-    def wait(self, identifier, progress=lambda *args: None, cancel=lambda: False, detach=lambda: False, interval=2):
+    def wait(self, identifier, progress=lambda *args: None, cancel=lambda: False, detach=lambda: False, interval=2, log=None):
+        from .job_logs import LogFollower
+        follower = LogFollower(self, identifier, log) if log is not None else None
+        try:
+            return self._wait(identifier, progress, cancel, detach, min(interval, 1) if follower else interval, follower)
+        finally:
+            if follower is not None:
+                follower.finish()
+
+    def _wait(self, identifier, progress, cancel, detach, interval, follower):
         identifier = str(uuid.UUID(identifier))
         cancellation_sent = False
         while True:
@@ -122,6 +131,8 @@ class Client:
                 cancellation_sent = True
                 if response.get("cancelled"):
                     progress("Cancelling job", 0)
+            if follower is not None:
+                follower.poll()
             history = self.request("GET", f"/history/{identifier}").get(identifier)
             if history:
                 for output in history.get("outputs", {}).values():
@@ -208,3 +219,14 @@ class Client:
             return response.read(65536).decode("utf-8", errors="replace")
         finally:
             connection.close()
+
+    def log_chunk(self, identifier, offset=-1, generation=None):
+        query = {"offset": offset}
+        if generation is not None:
+            query["generation"] = generation
+        # A slow log endpoint must not hold up cancellation for the normal 30 s timeout.
+        log_client = Client(self.base_url, self.token, timeout=min(self.timeout, 2))
+        try:
+            return log_client.request("GET", f"/vipe/jobs/{str(uuid.UUID(identifier))}/log?" + urlencode(query))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Update and restart the ViPE worker for live logs; Read Job Log still provides snapshots") from exc

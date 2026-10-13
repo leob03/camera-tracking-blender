@@ -10,7 +10,8 @@
   },
   "adaptations": [
     "Direct Git metadata reads replace git rev-parse",
-    "Require cached DeepLab weights before model load"
+    "Require cached DeepLab weights before model load",
+    "Flushed stage/window progress messages; AST unchanged after removing print statements"
   ],
   "numerical_recipe_changed": false
 }

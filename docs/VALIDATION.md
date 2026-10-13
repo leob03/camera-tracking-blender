@@ -41,3 +41,11 @@ Run `python tests/test_surface_geometry.py` with NumPy and OpenCV for the CPU ge
 ## Remaining rollout checks
 
 Actual Windows artist-machine operation, an Internet-blocked production image, generic DCC-bridge integration, multi-user scheduling/authentication policy and broader shot quality review have not been validated here. Numerical checks verify implementation and projection consistency; they do not choose a solve or certify camera quality.
+
+## Live log validation (0.4.1 / 0.3.1)
+
+Six CPU tests cover incremental appends, split UTF-8 characters, missing logs, truncation/replacement, bounded catch-up, final failure output, nonfatal endpoint/display errors, detach semantics, repeated real HTTP polling and display-buffer limits. Blender 4.2.3 checks verify live Text Editor updates, one-click splitting/reuse, paused inspection and resuming after completion. These tests require no model inference.
+
+Run `python tests/test_job_logs.py` and `blender -b --factory-startup --python-exit-code 1 --python tests/blender_live_logs.py`.
+
+The CoTracker wrapper now reports decoding, mask generation, model loading and each tracking window. An AST comparison confirms that removing these print statements restores the previous wrapper exactly; no tracking calculations or selection thresholds changed.

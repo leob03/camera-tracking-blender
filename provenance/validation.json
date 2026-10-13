@@ -47,5 +47,15 @@
       "worker_total": 321.82474016299966
     },
     "camera_sha256_unchanged": true
+  },
+  "live_logs": {
+    "addon_version": "0.4.1",
+    "worker_version": "0.3.1",
+    "cpu_tests": 6,
+    "blender_version": "4.2.3 LTS",
+    "blender_log_ui": "PASS",
+    "threaded_output_before_completion": "PASS",
+    "final_traceback_and_terminal_echo": "PASS",
+    "cotracker_progress_only_ast_parity": "PASS"
   }
 }

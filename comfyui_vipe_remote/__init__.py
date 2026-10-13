@@ -98,7 +98,7 @@ class ViPECameraTrack:
         request_file = work / "request.json"
         request_file.write_text(json.dumps(request, indent=2), encoding="utf-8")
         env = dict(os.environ)
-        env.update({"PYTHONPATH": cfg["vipe_root"], "PYTHONDONTWRITEBYTECODE": "1", "LD_LIBRARY_PATH": "", "OMP_NUM_THREADS": str(cfg.get("cpu_threads", 2)), "OPENBLAS_NUM_THREADS": "2", "MKL_NUM_THREADS": "2", "TORCH_HOME": cfg["torch_home"], "HF_HOME": cfg["hf_home"], "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "VIPE_FRAME_CACHE_DIR": str(work / "cache"), "VIPE_TRACK_ANYTHING_AOT_ENCODER_BATCH_SIZE": "1", "VIPE_DEPTH_ALIGNMENT_DEVICE": "cpu", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "MPLCONFIGDIR": str(work / "matplotlib"), "TMPDIR": str(work / "tmp"), "QT_QPA_PLATFORM": "offscreen", "IMAGEIO_FFMPEG_EXE": cfg["ffmpeg"]})
+        env.update({"PYTHONPATH": cfg["vipe_root"], "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1", "LD_LIBRARY_PATH": "", "OMP_NUM_THREADS": str(cfg.get("cpu_threads", 2)), "OPENBLAS_NUM_THREADS": "2", "MKL_NUM_THREADS": "2", "TORCH_HOME": cfg["torch_home"], "HF_HOME": cfg["hf_home"], "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "VIPE_FRAME_CACHE_DIR": str(work / "cache"), "VIPE_TRACK_ANYTHING_AOT_ENCODER_BATCH_SIZE": "1", "VIPE_DEPTH_ALIGNMENT_DEVICE": "cpu", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "MPLCONFIGDIR": str(work / "matplotlib"), "TMPDIR": str(work / "tmp"), "QT_QPA_PLATFORM": "offscreen", "IMAGEIO_FFMPEG_EXE": cfg["ffmpeg"]})
         model_management.unload_all_models()
         model_management.soft_empty_cache()
         save_status(work, "running", "Starting ViPE worker")
@@ -155,7 +155,7 @@ routes = PromptServer.instance.routes
 @routes.get("/vipe/capabilities")
 async def capabilities(request):
     cfg = config()
-    return web.json_response({"protocol_version": 1, "node": "ViPECameraTrack", "max_upload_bytes": cfg.get("max_upload_bytes", 1024**3), "outputs": ["camera", "native_cloud", "scene_markers", "independent_audit_landmarks", "artist_witnesses", "dense_environment"], "job_cancellation": "by_prompt_id", "dense_depth": True, "optional_stages": {"review_witnesses": True, "dense_environment": False}})
+    return web.json_response({"protocol_version": 1, "live_logs": "byte_cursor_v1", "node": "ViPECameraTrack", "max_upload_bytes": cfg.get("max_upload_bytes", 1024**3), "outputs": ["camera", "native_cloud", "scene_markers", "independent_audit_landmarks", "artist_witnesses", "dense_environment"], "job_cancellation": "by_prompt_id", "dense_depth": True, "optional_stages": {"review_witnesses": True, "dense_environment": False}})
 
 
 @routes.post("/vipe/upload")
@@ -214,6 +214,14 @@ async def get_log(request):
     except ValueError:
         raise web.HTTPBadRequest(text="Invalid job ID.")
     path = work / "worker.log"
+    if "offset" in request.query:
+        from .log_tail import read_log_chunk
+        try:
+            offset = int(request.query["offset"])
+            chunk = read_log_chunk(path, offset, request.query.get("generation"))
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
+        return web.json_response(chunk, headers={"Cache-Control": "no-store"})
     if not path.exists():
         return web.Response(text="The worker has not started yet.\n")
     with path.open("rb") as stream:

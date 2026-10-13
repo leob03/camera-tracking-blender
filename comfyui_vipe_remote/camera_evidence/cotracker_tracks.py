@@ -133,8 +133,10 @@ def generate_cotracker_evidence(
         raise FileExistsError(f"Refusing to overwrite non-empty evidence directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    print("[ViPE witnesses] Decoding source video", flush=True)
     frames, video_metadata = _decode_video(source_video, config.max_dimension)
     if config.semantic_masking:
+        print(f"[ViPE witnesses] DeepLab masks for {len(frames)} frames", flush=True)
         static_masks, semantic_mask_receipt = _build_semantic_static_masks(
             frames,
             device=device,
@@ -164,6 +166,7 @@ def generate_cotracker_evidence(
         }
     )
 
+    print("[ViPE witnesses] Loading CoTracker", flush=True)
     model = _load_model(cotracker_repository, checkpoint, device)
     native_scale = np.array(
         [
@@ -187,6 +190,7 @@ def generate_cotracker_evidence(
         query_ids = query_ids[query_static]
         partitions = partitions[query_static]
         queries_txy = query_points_tyx[:, [0, 2, 1]].copy()
+        print(f"[ViPE witnesses] CoTracker window {len(window_receipts)+1}: source frames {start+1}-{end}, {len(queries_txy)} queries", flush=True)
         tracks_eval, tracker_visible, visibility_score = _track_window(
             model,
             frames[start:end],
@@ -239,6 +243,7 @@ def generate_cotracker_evidence(
             }
         )
 
+    print(f"[ViPE witnesses] Saved {len(window_receipts)} tracking windows", flush=True)
     del model
     if device.startswith("cuda"):
         import torch

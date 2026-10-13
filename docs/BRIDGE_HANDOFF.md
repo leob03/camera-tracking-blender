@@ -42,3 +42,9 @@ A saved receipt contains job ID, server, local source/download paths, settings a
 - Optional review/reconstruction stages do not alter the solved camera.
 
 The next bridge-specific changes should be discussed with the project owner before implementation.
+
+## Live logs
+
+`GET /vipe/jobs/{id}/log?offset=N&generation=G` returns bounded incremental JSON chunks. Offset `-1` attaches to recent output. Response fields: base64-encoded raw `data`, `offset`, `next_offset`, `size`, `generation`, `reset`, `skipped_bytes`, and `exists`. Preserve the byte cursor and generation between requests; decode UTF-8 incrementally across chunks. A missing queued job log returns `exists=false`.
+
+Each response reads at most 32 KiB, with bounded catch-up and explicit omission/reset notices. `Client.wait(..., log=callback)` follows logs alongside job status and drains the final output on completion/error. Log transport/display failures remain independent of job success. Calling the endpoint without `offset` preserves the earlier plain-text tail response. Capabilities advertise `live_logs: "byte_cursor_v1"`.
