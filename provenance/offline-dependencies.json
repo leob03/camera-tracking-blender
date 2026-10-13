@@ -216,10 +216,11 @@
   "network_isolated_container_test_performed": false,
   "container_image_built": false,
   "notes": [
-    "Model entries are loader references, not a complete file/checksum manifest.",
+    "The model entries here are a summary; see model-manifest.json for exact files, revisions, checksums and optional-stage dependencies.",
     "Torch Hub and gdown can still try the network when weights are missing; HF flags alone do not prevent that.",
     "The local ComfyUI environment uses a .pth link to existing ViPE packages. Build self-contained environments in the production image.",
     "Native ViPE extensions must be built for the container Python, Torch/CUDA versions and target worker GPU architectures.",
     "ComfyUI frontend wheels include static browser assets needed offline."
-  ]
+  ],
+  "model_file_manifest": "model-manifest.json"
 }

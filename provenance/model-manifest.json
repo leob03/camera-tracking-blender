@@ -1,0 +1,218 @@
+{
+  "schema": "vipe-offline-model-inventory",
+  "version": 1,
+  "audited_on": "2026-10-13",
+  "scope": "Current reviewed ViPE worker recipe; not every model supported by upstream ViPE",
+  "worker_node_version": "0.3.1",
+  "vipe_reported_commit": "44ad630bc4e01666ace74cbccdacddc4de2fc0be",
+  "destination_root_example": "/models/vipe",
+  "groups": {
+    "core": "always",
+    "auto_lens": "lens_mode=auto",
+    "masking": "masking=true (default)",
+    "review_witnesses": "review_witnesses=true (default)",
+    "dense_environment": "dense_environment=true (default false)"
+  },
+  "files": [
+    {
+      "id": "droid.pth",
+      "group": "core",
+      "download_url": "https://drive.google.com/uc?id=1PpqVt1H4maBa_GbPJp4NwxRsd9jk-elh",
+      "destination": "torch/hub/droid_slam/droid.pth",
+      "bytes": 16061701,
+      "sha256": "46476ef64cde45a97504910d6f3de2eef7b398ec1c6e4e668815c29076024526",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "pinhole.tar",
+      "group": "auto_lens",
+      "download_url": "https://github.com/cvg/GeoCalib/releases/download/v1.0/geocalib-pinhole.tar",
+      "destination": "torch/hub/geocalib/pinhole.tar",
+      "bytes": 116074121,
+      "sha256": "86d6aeacd8bbd974c59ce39f61854e00d36911c732ad89be471476fd708722ac",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "sam_vit_b_01ec64.pth",
+      "group": "masking",
+      "download_url": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth",
+      "destination": "torch/hub/sam/sam_vit_b_01ec64.pth",
+      "bytes": 375042383,
+      "sha256": "ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "R50_DeAOTL_PRE_YTB_DAV.pth",
+      "group": "masking",
+      "download_url": "https://drive.google.com/uc?id=1QoChMkTVxdYZ_eBlZhK2acq9KMQZccPJ",
+      "destination": "torch/hub/aot/R50_DeAOTL_PRE_YTB_DAV.pth",
+      "bytes": 236513959,
+      "sha256": "7e8a8d83310739bac02817f6bf48b6bbe2bbd7d5325722f1084088eb3aee1e06",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "groundingdino_swint_ogc.pth",
+      "group": "masking",
+      "download_url": "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth",
+      "destination": "torch/hub/checkpoints/groundingdino_swint_ogc.pth",
+      "bytes": 693997677,
+      "sha256": "3b3ca2563c77c69f651d7bd133e97139c186df06231157a64c507099c52bc799",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "deeplabv3_mobilenet_v3_large-fc3c493d.pth",
+      "group": "review_witnesses",
+      "download_url": "https://download.pytorch.org/models/deeplabv3_mobilenet_v3_large-fc3c493d.pth",
+      "destination": "torch/hub/checkpoints/deeplabv3_mobilenet_v3_large-fc3c493d.pth",
+      "bytes": 44356159,
+      "sha256": "fc3c493d68e89cc31ef488c803d5d7dd2f3190fb570598faa49fef69be8e5e70",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "video_depth_anything_vits.pth",
+      "group": "dense_environment",
+      "download_url": "https://huggingface.co/depth-anything/Video-Depth-Anything-Small/resolve/main/video_depth_anything_vits.pth",
+      "destination": "torch/hub/checkpoints/video_depth_anything_vits.pth",
+      "bytes": 116440756,
+      "sha256": "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "scaled_offline.pth",
+      "group": "review_witnesses",
+      "download_url": "https://huggingface.co/facebook/cotracker3/resolve/main/scaled_offline.pth",
+      "destination": "cotracker/scaled_offline.pth",
+      "bytes": 101890938,
+      "sha256": "2670d4562ed69326dda775a26e54883925cd11b6fc9b24cb7aa9f8078bce7834",
+      "checksum_source": "existing study receipt; not rehashed in this audit"
+    },
+    {
+      "id": "lpiccinelli/unidepth-v2-vitl14/config.json",
+      "group": "core",
+      "download_url": "https://huggingface.co/lpiccinelli/unidepth-v2-vitl14/resolve/52b349b514bd8b47642f67ac78cb7b5dc5c51dd9/config.json",
+      "destination": "huggingface/hub/models--lpiccinelli--unidepth-v2-vitl14/snapshots/52b349b514bd8b47642f67ac78cb7b5dc5c51dd9/config.json",
+      "bytes": 3848,
+      "sha256": "09eb0ea8de53a6c9a1d428ac98c79847fe2602ea417701261f3f628099a30816",
+      "checksum_source": "small auxiliary file hashed during this audit",
+      "hf_blob_name": "f3243be215e91a135dfe99b54d0718473339b31b"
+    },
+    {
+      "id": "lpiccinelli/unidepth-v2-vitl14/model.safetensors",
+      "group": "core",
+      "download_url": "https://huggingface.co/lpiccinelli/unidepth-v2-vitl14/resolve/52b349b514bd8b47642f67ac78cb7b5dc5c51dd9/model.safetensors",
+      "destination": "huggingface/hub/models--lpiccinelli--unidepth-v2-vitl14/snapshots/52b349b514bd8b47642f67ac78cb7b5dc5c51dd9/model.safetensors",
+      "bytes": 1415383604,
+      "sha256": "ba73d3de735302ccc64a50f1e557122050c4b1893e6060b28dba05d6af3e67c6",
+      "checksum_source": "existing study receipt; not rehashed in this audit",
+      "hf_blob_name": "ba73d3de735302ccc64a50f1e557122050c4b1893e6060b28dba05d6af3e67c6"
+    },
+    {
+      "id": "bert-base-uncased/config.json",
+      "group": "masking",
+      "download_url": "https://huggingface.co/bert-base-uncased/resolve/86b5e0934494bd15c9632b12f734a8a67f723594/config.json",
+      "destination": "huggingface/hub/models--bert-base-uncased/snapshots/86b5e0934494bd15c9632b12f734a8a67f723594/config.json",
+      "bytes": 570,
+      "sha256": "7160e1553ad2ca51d8c1cb066be533db31826e12d173824c1bb0cb1a4f187d20",
+      "checksum_source": "small auxiliary file hashed during this audit",
+      "hf_blob_name": "45a2321a7ecfdaaf60a6c1fd7f5463994cc8907d"
+    },
+    {
+      "id": "bert-base-uncased/model.safetensors",
+      "group": "masking",
+      "download_url": "https://huggingface.co/bert-base-uncased/resolve/86b5e0934494bd15c9632b12f734a8a67f723594/model.safetensors",
+      "destination": "huggingface/hub/models--bert-base-uncased/snapshots/86b5e0934494bd15c9632b12f734a8a67f723594/model.safetensors",
+      "bytes": 440449768,
+      "sha256": "68d45e234eb4a928074dfd868cead0219ab85354cc53d20e772753c6bb9169d3",
+      "checksum_source": "existing study receipt; not rehashed in this audit",
+      "hf_blob_name": "68d45e234eb4a928074dfd868cead0219ab85354cc53d20e772753c6bb9169d3"
+    },
+    {
+      "id": "bert-base-uncased/tokenizer.json",
+      "group": "masking",
+      "download_url": "https://huggingface.co/bert-base-uncased/resolve/86b5e0934494bd15c9632b12f734a8a67f723594/tokenizer.json",
+      "destination": "huggingface/hub/models--bert-base-uncased/snapshots/86b5e0934494bd15c9632b12f734a8a67f723594/tokenizer.json",
+      "bytes": 466062,
+      "sha256": "ce64fce797c24f68df90b40a3f74f579b336a493db14bd583fd520ea0d8c9a98",
+      "checksum_source": "small auxiliary file hashed during this audit",
+      "hf_blob_name": "949a6f013d67eb8a5b4b5b46026217b888021b88"
+    },
+    {
+      "id": "bert-base-uncased/tokenizer_config.json",
+      "group": "masking",
+      "download_url": "https://huggingface.co/bert-base-uncased/resolve/86b5e0934494bd15c9632b12f734a8a67f723594/tokenizer_config.json",
+      "destination": "huggingface/hub/models--bert-base-uncased/snapshots/86b5e0934494bd15c9632b12f734a8a67f723594/tokenizer_config.json",
+      "bytes": 48,
+      "sha256": "a025160ef0431f1a392f6f050c1310f4c5d9fb6f275932dbccba73c4d214bf10",
+      "checksum_source": "small auxiliary file hashed during this audit",
+      "hf_blob_name": "e5c73d8a50df1f56fb5b0b8002d7cf4010afdccb"
+    },
+    {
+      "id": "bert-base-uncased/vocab.txt",
+      "group": "masking",
+      "download_url": "https://huggingface.co/bert-base-uncased/resolve/86b5e0934494bd15c9632b12f734a8a67f723594/vocab.txt",
+      "destination": "huggingface/hub/models--bert-base-uncased/snapshots/86b5e0934494bd15c9632b12f734a8a67f723594/vocab.txt",
+      "bytes": 231508,
+      "sha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+      "checksum_source": "small auxiliary file hashed during this audit",
+      "hf_blob_name": "fb140275c155a9c7c5a3b3e0e77a9e839594a938"
+    },
+    {
+      "id": "Rain729/Prior-Depth-Anything/depth_anything_v2_vitb.pth",
+      "group": "dense_environment",
+      "download_url": "https://huggingface.co/Rain729/Prior-Depth-Anything/resolve/25b3bfcf85209fb015e3b15259f4df8b6f13bb16/depth_anything_v2_vitb.pth",
+      "destination": "huggingface/hub/models--Rain729--Prior-Depth-Anything/snapshots/25b3bfcf85209fb015e3b15259f4df8b6f13bb16/depth_anything_v2_vitb.pth",
+      "bytes": 389961218,
+      "sha256": "0d2b7002e62d39d655571c371333340bd88f67ab95050c03591555aa05645328",
+      "checksum_source": "existing study receipt; not rehashed in this audit",
+      "hf_blob_name": "0d2b7002e62d39d655571c371333340bd88f67ab95050c03591555aa05645328"
+    },
+    {
+      "id": "Rain729/Prior-Depth-Anything/prior_depth_anything_vitb.pth",
+      "group": "dense_environment",
+      "download_url": "https://huggingface.co/Rain729/Prior-Depth-Anything/resolve/25b3bfcf85209fb015e3b15259f4df8b6f13bb16/prior_depth_anything_vitb.pth",
+      "destination": "huggingface/hub/models--Rain729--Prior-Depth-Anything/snapshots/25b3bfcf85209fb015e3b15259f4df8b6f13bb16/prior_depth_anything_vitb.pth",
+      "bytes": 390590586,
+      "sha256": "ff747c77af4e409b57fbf0b696c7b742efc4d283b923a12ad590f61c71ddae88",
+      "checksum_source": "existing study receipt; not rehashed in this audit",
+      "hf_blob_name": "ff747c77af4e409b57fbf0b696c7b742efc4d283b923a12ad590f61c71ddae88"
+    }
+  ],
+  "hf_snapshots": [
+    {
+      "repo_id_used_by_loader": "lpiccinelli/unidepth-v2-vitl14",
+      "revision": "52b349b514bd8b47642f67ac78cb7b5dc5c51dd9",
+      "cache_directory": "huggingface/hub/models--lpiccinelli--unidepth-v2-vitl14",
+      "ref_file": "huggingface/hub/models--lpiccinelli--unidepth-v2-vitl14/refs/main",
+      "ref_contents": "52b349b514bd8b47642f67ac78cb7b5dc5c51dd9"
+    },
+    {
+      "repo_id_used_by_loader": "bert-base-uncased",
+      "revision": "86b5e0934494bd15c9632b12f734a8a67f723594",
+      "cache_directory": "huggingface/hub/models--bert-base-uncased",
+      "ref_file": "huggingface/hub/models--bert-base-uncased/refs/main",
+      "ref_contents": "86b5e0934494bd15c9632b12f734a8a67f723594"
+    },
+    {
+      "repo_id_used_by_loader": "Rain729/Prior-Depth-Anything",
+      "revision": "25b3bfcf85209fb015e3b15259f4df8b6f13bb16",
+      "cache_directory": "huggingface/hub/models--Rain729--Prior-Depth-Anything",
+      "ref_file": "huggingface/hub/models--Rain729--Prior-Depth-Anything/refs/main",
+      "ref_contents": "25b3bfcf85209fb015e3b15259f4df8b6f13bb16"
+    }
+  ],
+  "source_dependencies": {
+    "cotracker": {
+      "repository": "https://github.com/facebookresearch/co-tracker",
+      "commit": "82e02e8029753ad4ef13cf06be7f4fc5facdda4d"
+    }
+  },
+  "total_file_bytes": 4337464906,
+  "network_isolated_container_test_performed": false,
+  "notes": [
+    "Destination paths are relative to the chosen DVC model root.",
+    "Materialized HF snapshot files plus refs/main avoid external cache symlinks. Alternatively preserve blobs and their relative snapshot links.",
+    "URLs using main are bound by the recorded SHA256; reject different content.",
+    "Downloads were not repeated and model binaries were not rehashed for this audit.",
+    "Legacy bert-base-uncased cache name is required by the current loader, even though the Hub redirects to google-bert/bert-base-uncased."
+  ]
+}
