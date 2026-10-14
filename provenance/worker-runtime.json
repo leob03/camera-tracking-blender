@@ -1,6 +1,6 @@
 {
   "scope": "Selected interfaces used by this worker; not a complete source-tree inventory",
-  "vipe_reported_commit": "44ad630bc4e01666ace74cbccdacddc4de2fc0be",
+  "vipe_reported_commit": "a5d30f0978afec9f8262622425f994b5ba573a1f",
   "upstream_base": "95a8816947602ddc26fcb7a80bea4f9313059578",
   "files": {
     "pyproject.toml": "712a79270a4c48f3f9eb979f54007a5119f9e30a64b2a706f4bd03d24aa5b127",
@@ -11,6 +11,13 @@
     "vipe/streams/disk_store.py": "837112b994903e89d624ae6ffcf9108eb92d2d3624fd2de1ae1e6594cfc0c0c3",
     "vipe/utils/io.py": "02aee2f37682957eb38bf830c9ef724724658aea3e450649926a44a49a945281",
     "vipe/priors/depth/videodepthanything/__init__.py": "68924cae2e57ed5f4ebd54f914ce76ad8ec595adeb001a60228cf4d071a08f16",
-    "vipe/priors/depth/priorda/__init__.py": "99f11442c3769f3c300c881fe989964b41654613062a3b8ce1277cf988a1c9d5"
-  }
+    "vipe/priors/depth/priorda/__init__.py": "99f11442c3769f3c300c881fe989964b41654613062a3b8ce1277cf988a1c9d5",
+    "vipe/priors/depth/alignment.py": "fba60f9b9bafa78768865ccb2121100b67ba89185dceec1dae9f4e9cb5c885fa",
+    "vipe/priors/depth/videodepthanything/video_depth.py": "744b802ff2c11264139529c38f45fb2f77d69eaf0c77ac6174edabdc347e6952",
+    "vipe/utils/visualization.py": "63f494e3f46f6ad0c4e5380a1ba5d069494e31092d8d1a0fc179e4267bbda9d0",
+    "tests/test_disk_store.py": "9b4b1d0b1d1c751dff746cfc065d804c1928822bb40e73bff9198c7a84b4e46f",
+    "tests/test_streaming_artifact_export.py": "330ed467cb1997251fdbdf2184c673366fb7c21608dd06c6755a937084a936e8",
+    "scripts/export_frozen_frame_cache.py": "206dbff9c0cf30242663466f454037f80bc87488046fe4bfeb35f22bea2f0b7a"
+  },
+  "source_snapshot": "vipe-source-snapshot.json"
 }

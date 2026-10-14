@@ -16,6 +16,7 @@ The witness stage assesses the camera; it does not improve the solve. Neither op
 
 - **Artist:** [Blender installation and use](docs/BLENDER.md)
 - **Worker developer:** [ComfyUI and ViPE setup](docs/WORKER_SETUP.md)
+- **ViPE fork mirror:** [Committed source pin and external dependencies](docs/VIPE_HANDOFF.md)
 - **DCC bridge developer:** [Integration boundaries and API](docs/BRIDGE_HANDOFF.md)
 - **Models / DVC handoff:** [Exact weights, download links and container paths](docs/MODELS.md)
 - **Offline deployment:** [Dependencies and model preparation](docs/OFFLINE.md)

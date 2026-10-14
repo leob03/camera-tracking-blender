@@ -1,0 +1,30 @@
+{
+  "commit": "a5d30f0978afec9f8262622425f994b5ba573a1f",
+  "parent": "44ad630bc4e01666ace74cbccdacddc4de2fc0be",
+  "branch": "study-transfer/2026-10-01",
+  "date": "2026-10-14",
+  "scope": "Exact existing eight modified and four untracked source/test files; no inference behavior changed during snapshot",
+  "files": {
+    "vipe/pipeline/default.py": "73aff1837b2f59e59eb70a8f248f3a6fd86c504390bdb4c3d403ac9ce770e457",
+    "vipe/pipeline/processors.py": "db6e2d893043f0cfb357f9af3f0b9dd90374b2c0dafa767c40f289ad4201a9ba",
+    "vipe/priors/depth/alignment.py": "fba60f9b9bafa78768865ccb2121100b67ba89185dceec1dae9f4e9cb5c885fa",
+    "vipe/priors/depth/videodepthanything/__init__.py": "68924cae2e57ed5f4ebd54f914ce76ad8ec595adeb001a60228cf4d071a08f16",
+    "vipe/priors/depth/videodepthanything/video_depth.py": "744b802ff2c11264139529c38f45fb2f77d69eaf0c77ac6174edabdc347e6952",
+    "vipe/streams/base.py": "62075b204e164d4d79e245aa5c568f36ab2e52997e9e5fd389a35f4f241f2189",
+    "vipe/utils/io.py": "02aee2f37682957eb38bf830c9ef724724658aea3e450649926a44a49a945281",
+    "vipe/utils/visualization.py": "63f494e3f46f6ad0c4e5380a1ba5d069494e31092d8d1a0fc179e4267bbda9d0",
+    "vipe/streams/disk_store.py": "837112b994903e89d624ae6ffcf9108eb92d2d3624fd2de1ae1e6594cfc0c0c3",
+    "tests/test_disk_store.py": "9b4b1d0b1d1c751dff746cfc065d804c1928822bb40e73bff9198c7a84b4e46f",
+    "tests/test_streaming_artifact_export.py": "330ed467cb1997251fdbdf2184c673366fb7c21608dd06c6755a937084a936e8",
+    "scripts/export_frozen_frame_cache.py": "206dbff9c0cf30242663466f454037f80bc87488046fe4bfeb35f22bea2f0b7a"
+  },
+  "validation": {
+    "syntax": "12 source files parsed successfully",
+    "disk_store_tests": "4 passed",
+    "streaming_export_test": "1 passed with configured IMAGEIO_FFMPEG_EXE",
+    "initial_export_attempt": "Failed because inherited /usr/bin/ffmpeg did not exist; passed after selecting worker-config FFmpeg",
+    "model_downloads": false,
+    "full_inference_rerun": false
+  },
+  "pushed_to_vipe_remote": false
+}

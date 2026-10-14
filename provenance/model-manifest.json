@@ -4,7 +4,7 @@
   "audited_on": "2026-10-13",
   "scope": "Current reviewed ViPE worker recipe; not every model supported by upstream ViPE",
   "worker_node_version": "0.3.1",
-  "vipe_reported_commit": "44ad630bc4e01666ace74cbccdacddc4de2fc0be",
+  "vipe_reported_commit": "a5d30f0978afec9f8262622425f994b5ba573a1f",
   "destination_root_example": "/models/vipe",
   "groups": {
     "core": "always",
@@ -213,6 +213,7 @@
     "Materialized HF snapshot files plus refs/main avoid external cache symlinks. Alternatively preserve blobs and their relative snapshot links.",
     "URLs using main are bound by the recorded SHA256; reject different content.",
     "Downloads were not repeated and model binaries were not rehashed for this audit.",
-    "Legacy bert-base-uncased cache name is required by the current loader, even though the Hub redirects to google-bert/bert-base-uncased."
+    "Legacy bert-base-uncased cache name is required by the current loader, even though the Hub redirects to google-bert/bert-base-uncased.",
+    "Source state committed unchanged on 2026-10-14 as a5d30f0978afec9f8262622425f994b5ba573a1f; model inventory unchanged."
   ]
 }

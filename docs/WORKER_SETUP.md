@@ -9,7 +9,7 @@
 
 ### Required ViPE compatibility
 
-The tested checkout reports commit `44ad630bc4e01666ace74cbccdacddc4de2fc0be` on the internal restored study branch, based on upstream `95a8816947602ddc26fcb7a80bea4f9313059578`. This is a modified source tree; the commit alone does not certify every runtime file. Selected file hashes are in `provenance/worker-runtime.json`.
+Pin ViPE to **`a5d30f0978afec9f8262622425f994b5ba573a1f`** on `study-transfer/2026-10-01`, based on upstream `95a8816947602ddc26fcb7a80bea4f9313059578`. This commits the exact previously reviewed state: parent `44ad630` plus eight modified and four new files. All previously recorded worker source hashes match. See [the source and dependency handoff](VIPE_HANDOFF.md), `provenance/vipe-source-snapshot.json` and `provenance/worker-runtime.json`.
 
 Obtain the reviewed ViPE source/environment from the study handoff. It includes stage snapshots (`save_slam_stage_artifacts`, initial/pre/post-BA intrinsics), stock sparse-track configuration, disk-backed frame/depth caches, bounded TrackAnything encoder batching, and local model-loading fixes. **Do not assume `pip install nvidia-vipe` or a fresh upstream clone reproduces this setup.** The ViPE fork is not republished by this add-on repository. Publishing or replacing that fork is a separate integration decision.
 
