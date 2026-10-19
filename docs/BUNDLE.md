@@ -8,6 +8,13 @@
 
 All binary files are listed in the manifest with SHA256 and byte length. The manifest contains source SHA256, original dimensions, rational FPS, frame selection, settings, processing resolution, original-pixel lens stages and optional-stage receipts.
 
+Additions in node pack 0.4.0 (bundle versions unchanged):
+
+- `camera.model = "PINHOLE_UNDISTORTED"` with `camera.lens_distortion = {model: "mei", fx, fy, cx, cy, xi, undistorted_focal_px, width, height}` when distortion is estimated. Camera arrays are then the pinhole camera of the **undistorted** plate (`f = fx / (1 + xi)`). Older importers reject such bundles instead of silently ignoring the lens. MEI projection: `u = fx·X/(Z + xi·|P|) + cx`.
+- `review_of` names the parent job of a review-only bundle; its camera arrays are copies of the parent's.
+- `source.kind = "image_sequence"`, `first_frame`, `colorspace`, `pattern`, `upload_width/upload_height` for proxy uploads of image sequences. `source.sha256` is the uploaded archive's checksum.
+- Dense views carry `environment.mode` (`fast` or `video`). Fast views use the exported camera intrinsics for unprojection.
+
 ## Coordinates
 
 Camera arrays are OpenCV camera-to-world matrices, `[fx,fy,cx,cy]` in original source pixels, and zero-based original source-frame indices. Source selection UI is one-based/inclusive. Blender import converts camera axes and applies a common world-alignment parent; no geometry is independently rescaled.

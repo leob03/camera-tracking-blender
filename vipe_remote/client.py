@@ -68,8 +68,28 @@ class Client:
         path = Path(path)
         size = path.stat().st_size
         caps = self.capabilities()
+        self.caps = caps
         if size <= 0 or size > caps["max_upload_bytes"]:
             raise ValueError(f"Video must be nonempty and smaller than {caps['max_upload_bytes'] / 1024**2:.0f} MiB.")
+        if caps.get("upload_reuse") == "sha256_v1":
+            # Hashing locally is much cheaper than sending a plate the worker already has.
+            local = hashlib.sha256()
+            done = 0
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+                    if stop():
+                        raise JobCancelled("Upload stopped before job submission.")
+                    local.update(chunk)
+                    done += len(chunk)
+                    progress("Checking plate on worker", done / size)
+            try:
+                found = self.request("GET", f"/vipe/uploads/{local.hexdigest()}?" + urlencode({"suffix": path.suffix.lower()}))
+                if found.get("sha256") == local.hexdigest() and found.get("bytes") == size:
+                    progress("Plate already on worker", 1)
+                    return {**found, "reused": True}
+            except APIError as exc:
+                if exc.status != 404:
+                    raise
         connection = self.connection()
         digest = hashlib.sha256()
         sent = 0
@@ -95,17 +115,36 @@ class Client:
             result = json.loads(raw)
             if result["sha256"] != digest.hexdigest() or result["bytes"] != size:
                 raise ValueError("Uploaded video checksum does not match the local plate.")
-            return result
+            return {**result, "reused": False}
         finally:
             connection.close()
 
     def submit(self, uploaded, source_name, settings, identifier):
         identifier = str(uuid.UUID(identifier))
+        caps = getattr(self, "caps", None) or self.capabilities()
+        # Older workers only know the original optional stages; never send them unknown inputs.
+        known = set(caps.get("optional_inputs", ["review_witnesses", "dense_environment"]))
+        required = {"frame_start", "frame_end", "max_dimension", "masking", "mask_phrases", "lens_mode", "focal_mm", "sensor_mm", "max_points"}
+        unsupported = [k for k, v in settings.items() if k not in required and k not in known and v]
+        if unsupported:
+            raise ValueError("This worker does not support: " + ", ".join(sorted(unsupported)) + ". Update the ComfyUI node pack.")
+        settings = {k: v for k, v in settings.items() if k in required or k in known}
         inputs = {**settings, "video": uploaded["video"], "source_name": source_name, "source_sha256": uploaded["sha256"], "request_id": identifier}
         workflow = {"1": {"class_type": "ViPECameraTrack", "inputs": inputs, "_meta": {"title": "ViPE camera and native points"}}}
         response = self.request("POST", "/prompt", {"prompt": workflow, "prompt_id": identifier, "client_id": "blender-vipe-" + identifier})
         if response.get("prompt_id") != identifier or response.get("node_errors"):
             raise ValueError(f"Worker rejected the camera workflow: {response}")
+        return workflow
+
+    def submit_review(self, parent_job_id, identifier):
+        identifier = str(uuid.UUID(identifier))
+        caps = self.capabilities()
+        if caps.get("review_jobs") != "ViPEReviewJob":
+            raise ValueError("This worker cannot add review witnesses to an existing job. Update the ComfyUI node pack.")
+        workflow = {"1": {"class_type": "ViPEReviewJob", "inputs": {"parent_job_id": str(uuid.UUID(parent_job_id)), "request_id": identifier}, "_meta": {"title": "ViPE review witnesses"}}}
+        response = self.request("POST", "/prompt", {"prompt": workflow, "prompt_id": identifier, "client_id": "blender-vipe-" + identifier})
+        if response.get("prompt_id") != identifier or response.get("node_errors"):
+            raise ValueError(f"Worker rejected the review workflow: {response}")
         return workflow
 
     def cancel(self, identifier):
@@ -166,7 +205,7 @@ class Client:
                             raise JobCancelled("Queued job cancelled.")
                         raise RuntimeError("This worker no longer knows the job. Check the worker address or submit a new job.") from exc
                     raise
-            progress(status["message"], status["progress"] / 100)
+            progress(status["message"] + (" · " + status["detail"] if status.get("detail") else ""), status["progress"] / 100)
             deadline = time.monotonic() + interval
             while time.monotonic() < deadline:
                 if detach():

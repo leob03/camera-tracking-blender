@@ -14,5 +14,9 @@
   "cotracker_repository": "/opt/camera-tracking/vendor/cotracker",
   "cotracker_checkpoint": "/opt/camera-tracking/vendor/checkpoints/scaled_offline.pth",
   "evidence_cache_directory": "/opt/comfy-runtime/evidence",
-  "evidence_max_frames": 1500
+  "evidence_max_frames": 1500,
+  "aot_encoder_batch_size": 1,
+  "depth_alignment_device": "cpu",
+  "async_prefetch": false,
+  "prefetch_queue_size": 1
 }

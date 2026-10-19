@@ -11,7 +11,8 @@
   "adaptations": [
     "Direct Git metadata reads replace git rev-parse",
     "Require cached DeepLab weights before model load",
-    "Flushed stage/window progress messages; AST unchanged after removing print statements"
+    "Flushed stage/window progress messages; AST unchanged after removing print statements",
+    "Per-frame projection matrices cached in _collect_landmarks (identical values; speed only)"
   ],
   "numerical_recipe_changed": false
 }

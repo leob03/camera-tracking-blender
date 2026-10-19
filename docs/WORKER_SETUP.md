@@ -27,7 +27,7 @@ Preflight checks interfaces and configured files. A passing preflight is not an 
 python scripts/build_packages.py
 ```
 
-Extract `dist/comfyui_vipe_remote-0.3.1.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
+Extract `dist/comfyui_vipe_remote-0.4.0.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
 
 Set `VIPE_WORKER_CONFIG` in the ComfyUI server environment, then restart ComfyUI:
 
@@ -55,3 +55,24 @@ The witness cache is keyed by source SHA256 and checks recipe/checkpoint metadat
 Dense reconstruction reuses the prepared plate and actual solve masks, computes stock adaptive video depth, then samples up to 12 views. Depth processing is capped at a 1280-pixel long edge. It rejects dynamic/sky pixels, dilates exclusions, rejects depth edges and creates unmerged surfaces. The earlier 4K environment study used a higher depth resolution; visual quality is not guaranteed identical.
 
 Jobs keep logs, request/configuration artifacts, camera/native-map outputs and stage timings on local scratch. There is no automatic disk retention policy yet. Stop jobs before manually cleaning their directories. Completed downloads can be reimported without the server; service restarts do not guarantee queued/running jobs survive.
+
+## Production tuning (node pack 0.4.0)
+
+The defaults keep the reviewed behaviour of the 16 GB development card. On larger workers, adjust these optional `worker-config.json` keys and compare timings:
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `cpu_threads` | 2 | OMP/OpenBLAS/MKL and Torch CPU threads for every stage |
+| `aot_encoder_batch_size` | 1 | TrackAnything DeAOT encoder batch (`VIPE_TRACK_ANYTHING_AOT_ENCODER_BATCH_SIZE`); larger uses more VRAM |
+| `depth_alignment_device` | `cpu` | Depth alignment device for the original video-depth mode (`cuda` on large GPUs) |
+| `async_prefetch` / `prefetch_queue_size` | false / 1 | Overlap decoding and annotation with SLAM; uses more GPU memory |
+
+## What changed in 0.4.0
+
+- **Content-addressed uploads.** Uploads are stored as `input/vipe/<sha256><suffix>`. `GET /vipe/uploads/{sha256}?suffix=.mp4` reports an existing plate so clients skip the upload. Older UUID-named uploads remain valid but are not deduplicated.
+- **Review jobs.** `ViPEReviewJob(parent_job_id, request_id)` copies the parent's bundle and runs only the witness stage against the frozen camera. Witnesses are now off by default for new solves.
+- **Fast dense mode (default).** `dense_mode=fast` computes depth only for the 12 sampled views: PriorDA completes the projected native SLAM map, or UniDepth is used when map coverage is poor (the same rule as the stock processor). `dense_mode=video` keeps the original full-video Video Depth Anything path.
+- **Lens distortion (experimental).** `lens_distortion=true` solves the unified (MEI) model: pinhole GeoCalib initialises the focal length, `xi` starts at 0 and bundle adjustment refines both with the generic (non-fused) solver. The bundle camera is the pinhole camera of the undistorted plate; `camera.lens_distortion` holds the model. Not yet combined with dense reconstruction.
+- **Image-sequence plates.** A `.zip` upload containing `frames/000000.jpg…` and `plate.json` (built by the Blender add-on from an EXR/DPX/TIFF sequence) is rebuilt into the worker movie. `plate_width/plate_height` make the camera report in original plate pixels.
+- **Square pixels.** Intrinsics keep the horizontal field of view with `fx = fy`, so rounding the processing size to even pixels no longer creates a pixel aspect in Blender.
+- **Status detail.** `GET /vipe/jobs/{id}` adds `detail` (latest progress bar, CoTracker window or dense view) from an 8 KiB log tail.

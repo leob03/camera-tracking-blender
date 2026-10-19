@@ -81,6 +81,14 @@ def solve(request_path, config_path):
     scale = min(1.0, maximum / max(width, height)) if maximum else 1.0
     process_w = max(2, round(width * scale / 2) * 2)
     process_h = max(2, round(height * scale / 2) * 2)
+    # An uploaded proxy can stand in for a larger plate; report the camera in plate pixels.
+    plate_w, plate_h = settings.get("plate_width") or width, settings.get("plate_height") or height
+    if abs(plate_w / plate_h - width / height) > 0.01 * width / height:
+        raise ValueError("The uploaded proxy and the declared plate size have different aspect ratios.")
+    sx, sy = plate_w / process_w, plate_h / process_h
+    # Square-pixel plates: keep the horizontal field of view and one focal length, so even-pixel
+    # rounding of the processing size never invents a pixel aspect.
+    kscale = np.array([sx, sx, sx, sy])
     plate = work / "plate.mp4"
     subprocess.run([cfg["ffmpeg"], "-v", "error", "-threads", "2", "-noautorotate", "-i", str(source), "-vf", f"trim=start_frame={first}:end_frame={end},setpts=N/(({fps})*TB),scale={process_w}:{process_h}:flags=area", "-an", "-r", str(fps), "-frames:v", str(count), "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "16", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(plate)], check=True)
     prepared = probe_video(plate, cfg["ffprobe"])
@@ -97,8 +105,8 @@ def solve(request_path, config_path):
     pipeline_cfg.output.save_artifacts = False
     pipeline_cfg.output.save_slam_map = False
     pipeline_cfg.output.save_viz = False
-    pipeline_cfg.init.async_prefetch = False
-    pipeline_cfg.init.prefetch_queue_size = 1
+    pipeline_cfg.init.async_prefetch = bool(cfg.get("async_prefetch", False))
+    pipeline_cfg.init.prefetch_queue_size = int(cfg.get("prefetch_queue_size", 1))
     pipeline_cfg.slam.buffer = max(128, min(count + 64, cfg.get("slam_buffer_limit", 1024)))
     pipeline_cfg.slam.sparse_tracks.name = "dummy"
     pipeline_cfg.post.depth_align_model = None
@@ -113,6 +121,21 @@ def solve(request_path, config_path):
         stream = ProcessedVideoStream(stream, [AssignAttributesProcessor({FrameAttribute.INTRINSICS: [intrinsics] * count, FrameAttribute.CAMERA_TYPE: [CameraType.PINHOLE] * count})])
         pipeline_cfg.init.intrinsics = "gt"
         pipeline_cfg.slam.optimize_intrinsics = False
+    elif settings.get("lens_distortion"):
+        # The offline model set has only pinhole GeoCalib weights: start the unified (MEI)
+        # model from that focal length with xi = 0 and let bundle adjustment refine both.
+        import numpy as _np
+        from vipe.pipeline.processors import GeoCalibIntrinsicsProcessor
+        write_status(work, "running", "Estimating initial lens", 12)
+        fov_y = GeoCalibIntrinsicsProcessor(stream, camera_type=CameraType.PINHOLE).fov_y
+        torch.cuda.empty_cache()
+        focal = process_h / (2 * _np.tan(fov_y / 2))
+        intrinsics = torch.tensor([focal, focal, process_w / 2, process_h / 2, 0.0], device="cuda", dtype=torch.float32)
+        stream = ProcessedVideoStream(stream, [AssignAttributesProcessor({FrameAttribute.INTRINSICS: [intrinsics] * count, FrameAttribute.CAMERA_TYPE: [CameraType.MEI] * count})])
+        pipeline_cfg.init.intrinsics = "gt"
+        pipeline_cfg.init.camera_type = "mei"
+        pipeline_cfg.slam.optimize_intrinsics = True
+        pipeline_cfg.slam.ba.fused = False  # the fused solver is pinhole-only
     else:
         pipeline_cfg.init.intrinsics = "geocalib"
         pipeline_cfg.slam.optimize_intrinsics = True
@@ -134,8 +157,16 @@ def solve(request_path, config_path):
         np.savez_compressed(work / 'depth_context.npz', poses=slam.get_view_trajectory(0).data.detach().cpu().numpy(), intrinsics=slam.intrinsics[0].detach().cpu().numpy())
     write_status(work, "running", "Saving frozen camera and native points", 65)
     poses = slam.get_view_trajectory(0).matrix().detach().cpu().numpy().astype(np.float64)
-    k = slam.intrinsics[0].detach().cpu().numpy()[:4].astype(np.float64)
-    k *= np.array([width / process_w, height / process_h, width / process_w, height / process_h])
+    solved = slam.intrinsics[0].detach().cpu().numpy().astype(np.float64)
+    k = solved[:4] * kscale
+    k[1] = k[0]
+    distortion = None
+    if settings.get("lens_distortion"):
+        xi = float(solved[4])
+        # The exported camera is the pinhole camera of the undistorted plate (unit slope at the centre).
+        distortion = {"model": "mei", "fx": float(k[0]), "fy": float(k[1]), "cx": float(k[2]), "cy": float(k[3]), "xi": xi, "undistorted_focal_px": float(k[0] / (1 + xi)), "width": plate_w, "height": plate_h, "convention": "opencv_pixel_centers"}
+        (work / "camera_distortion.json").write_text(json.dumps(distortion, indent=2))
+        k = np.array([k[0] / (1 + xi), k[1] / (1 + xi), k[2], k[3]])
     if poses.shape != (count, 4, 4) or not np.isfinite(poses).all() or not np.isfinite(k).all() or np.any(k[:2] <= 0):
         raise ValueError("ViPE returned an incomplete or non-finite camera.")
     xyz = slam.slam_map.dense_disp_xyz.detach().cpu().numpy()
@@ -153,9 +184,9 @@ def solve(request_path, config_path):
     stages = {}
     for name, values in [("initial", slam.initial_intrinsics), ("pre_global_ba", slam.pre_global_ba.intrinsics if slam.pre_global_ba else None), ("post_global_ba", slam.post_global_ba.intrinsics if slam.post_global_ba else None)]:
         if values is not None:
-            vals = values.detach().cpu().numpy().reshape(-1)[:4] * np.array([width / process_w, height / process_h, width / process_w, height / process_h])
-            stages[name] = vals.tolist()
-    manifest = {"schema": "vipe-camera-bundle", "version": 1, "job_id": request["job_id"], "source": {"name": request["source_name"], "sha256": request["source_sha256"], "width": width, "height": height, "frame_count": total, "fps_num": fps.numerator, "fps_den": fps.denominator}, "selection": {"first_source_frame": first, "last_source_frame": end - 1, "count": count}, "camera": {"file": "camera.npz", "model": "PINHOLE", "convention": "opencv_camera_to_world", "intrinsics_units": "original_source_pixels", "distortion": [], "world_scale": "ViPE estimated scale; not surveyed"}, "cloud": {"file": "cloud.npz", "kind": "native_post_ba_slam_map", "point_count": len(ids), "eligible_point_count": eligible, "filtering": "ViPE depth consistency and solve masks; no additional DeepLab filter", "sampling": "evenly spaced source point IDs; no score ranking"}, "settings": settings, "processing": {"width": process_w, "height": process_h, "dense_depth_computed": False, "backend": "stock", "lens_stages_original_pixels": stages}, "files": {name: {"sha256": digest(output / name), "bytes": (output / name).stat().st_size} for name in ["camera.npz", "cloud.npz"]}}
+            raw = values.detach().cpu().numpy().reshape(-1)
+            stages[name] = (raw[:4] * kscale).tolist() + raw[4:5].tolist()
+    manifest = {"schema": "vipe-camera-bundle", "version": 1, "job_id": request["job_id"], "source": {"name": request["source_name"], "sha256": request.get("identity_sha256", request["source_sha256"]), **({"kind": "image_sequence", "first_frame": request["plate"]["first_frame"], "colorspace": request["plate"].get("colorspace", ""), "pattern": request["plate"].get("pattern", "")} if request.get("plate") else {}), "width": plate_w, "height": plate_h, "frame_count": total, "fps_num": fps.numerator, "fps_den": fps.denominator, **({"upload_width": width, "upload_height": height} if (plate_w, plate_h) != (width, height) else {})}, "selection": {"first_source_frame": first, "last_source_frame": end - 1, "count": count}, "camera": {"file": "camera.npz", "model": "PINHOLE_UNDISTORTED" if distortion else "PINHOLE", "convention": "opencv_camera_to_world", "intrinsics_units": "original_source_pixels", "distortion": [], **({"lens_distortion": distortion} if distortion else {}), "world_scale": "ViPE estimated scale; not surveyed"}, "cloud": {"file": "cloud.npz", "kind": "native_post_ba_slam_map", "point_count": len(ids), "eligible_point_count": eligible, "filtering": "ViPE depth consistency and solve masks; no additional DeepLab filter", "sampling": "evenly spaced source point IDs; no score ranking"}, "settings": settings, "processing": {"width": process_w, "height": process_h, "dense_depth_computed": False, "backend": "stock", "camera_model": "mei" if distortion else "pinhole", "lens_stages_original_pixels": stages}, "files": {name: {"sha256": digest(output / name), "bytes": (output / name).stat().st_size} for name in ["camera.npz", "cloud.npz"]}}
     (output / "result.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
@@ -166,8 +197,11 @@ def run(request_path, config_path):
     common = ['--request', str(request_path), '--config', str(config_path)]
     request = json.loads(request_path.read_text())
     work, output = request_path.parent, Path(request['output'])
-    stages = [('camera_solve', Path(__file__), ['--solve-only'])]
-    if request['settings'].get('review_witnesses', True):
+    review_of = request.get('review_of')
+    stages = [] if review_of else [('camera_solve', Path(__file__), ['--solve-only'])]
+    if review_of:
+        write_status(work, 'running', 'Preparing review', 5)
+    if request['settings'].get('review_witnesses', False):
         stages.append(('review_witnesses', Path(__file__).with_name('evidence_stage.py'), []))
     if request['settings'].get('dense_environment', False):
         stages.append(('dense_environment', Path(__file__).with_name('dense_stage.py'), []))
@@ -178,7 +212,11 @@ def run(request_path, config_path):
         shutil.rmtree(work / 'cache', ignore_errors=True)
     write_status(work, 'running', 'Packaging tracking results', 95)
     manifest = json.loads((output / 'result.json').read_text())
-    manifest['timings_seconds'] = {**timings, 'worker_before_packaging': time.monotonic() - started}
+    if review_of:
+        manifest['job_id'], manifest['review_of'] = request['job_id'], review_of
+        manifest['timings_seconds'] = {**manifest.get('timings_seconds', {}), **{'review_' + k if k == 'worker_before_packaging' else k: v for k, v in timings.items()}, 'review_worker_before_packaging': time.monotonic() - started}
+    else:
+        manifest['timings_seconds'] = {**timings, 'worker_before_packaging': time.monotonic() - started}
     (output / 'result.json').write_text(json.dumps(manifest, indent=2))
     with zipfile.ZipFile(output / 'result.zip.tmp', 'w', zipfile.ZIP_STORED) as archive:
         for name in ['result.json', *manifest['files']]:

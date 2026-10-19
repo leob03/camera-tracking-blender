@@ -4,25 +4,39 @@
 
 1. Build the packages, or obtain the built add-on ZIP from the project maintainer.
 2. In Blender 4.2, open Preferences → Add-ons → Install from Disk. Select `vipe_remote-0.4.1.zip` and enable **ViPE Remote Tracking**.
-3. In the 3D View sidebar (N), open **ViPE Remote → Worker connection**.
-4. Enter the worker URL and click **Check Connection**. `127.0.0.1` refers to the computer running Blender. Use your worker address, gateway or SSH tunnel for a different computer.
+3. In the 3D View sidebar (N), open **ViPE Remote → Worker**.
+4. Enter the worker URL and click **Check Connection**. The main panel shows *Worker connected*, *Worker check failed* or *Worker not checked* for the current URL; the refresh button beside it checks again. `127.0.0.1` refers to the computer running Blender. Use your worker address, gateway or SSH tunnel for a different computer.
 
 No pip or CUDA installation is required in Blender. The optional Bearer token is session-only and intended for an existing gateway.
 
+## Panel layout
+
+The **ViPE Remote Tracking** panel holds the connection indicator, **Submit Tracking Job** / **Cancel Job** (**Stop Download** while downloading), the status, a progress bar and the elapsed time. While a job runs, a checklist marks each stage done, current or pending: Upload, Queue, Prepare, Camera solve, Review witnesses and Dense (when enabled), Package, Download, Import. Live worker detail (for example a SLAM pass percentage) appears under the current stage.
+
+Sub-panels, which can be collapsed or reordered: **Worker** (closed), **Plate**, **Lens**, **Solve** (closed), **Outputs**, **Results** (only when the selected job is in the scene), **Jobs** (closed) and **Logs** (closed). Settings are locked while a request runs.
+
 ## Submit
 
-Choose a local video, select a frame range, and click **Submit Tracking Job**. Keep **Import when ready** enabled for automatic import. Upload and polling run in a background thread; Blender scene edits run on the main thread.
+Choose a local video, select a frame range, and click **Submit Tracking Job**. Keep **Import when ready** enabled for automatic import. Upload and polling run in a background thread; Blender scene edits run on the main thread. A plate the worker already has is not uploaded again.
 
-- First source frame is 1. Last frame 0 means the end; a nonzero last frame is inclusive.
-- Processing long edge defaults to 1280 pixels. This changes inference resolution; the imported camera matches the original movie dimensions.
-- **Estimate and refine:** GeoCalib initializes the lens and ViPE refines it.
-- **Known focal length:** `focal_mm / sensor_mm × image_width` gives horizontal focal length in pixels. This mode locks the lens with a centered principal point.
-- **Exclude dynamic categories:** TrackAnything exclusions for the camera solve. Keep enabled unless deliberately testing unmasked input.
-- **Independent review witnesses:** on by default. Adds CoTracker/DeepLab observations and the original four supported review crosses. Disable for faster camera-only jobs. Disabling it does not remove TrackAnything solve masking.
-- **Dense environment reconstruction:** off by default. Adds video-depth inference and static surface accumulation. This is separate from the native cloud.
-- **Cloud point limit:** limits native points exported/displayed, not SLAM computation or dense environment samples.
-- **Blender start frame:** timeline frame corresponding to the first selected source frame, normally 1001.
+- **Plate:** choosing a video reads its resolution, frame rate, frame count and duration once. First source frame is 1. Last frame 0 means the end; a nonzero last frame is inclusive. The line below shows the selected frames and duration; **Full Clip** resets the range to 1–0. **Blender start frame** is the timeline frame of the first selected source frame, normally 1001.
+- **Lens → Estimate and refine:** GeoCalib initializes the lens and ViPE refines it. **Estimate lens distortion (experimental)** adds a one-parameter unified (MEI) distortion and undistort/redistort data; it is available only in this mode and not together with dense reconstruction.
+- **Lens → Known focal length:** `focal_mm / sensor_mm × image_width` gives horizontal focal length in pixels. This mode locks the lens with a centered principal point.
+- **Filmback:** choose a camera preset (ARRI ALEXA 35/LF/Mini, RED V-RAPTOR 8K VV, full frame, Super 35, Micro Four Thirds) or type **Sensor width (mm)**. The width sets the imported camera's sensor and the known-focal conversion; it does not change the solve.
+- **Solve:** processing long edge defaults to 1280 pixels. This changes inference resolution; the imported camera matches the original movie dimensions. **Exclude dynamic categories** applies TrackAnything exclusions to the camera solve. Keep it enabled unless deliberately testing unmasked input.
+- **Outputs → Review witnesses:** off by default. Adds CoTracker/DeepLab observations and the original four supported review crosses, at about 2.5–3× total time. It can also be added later from **Results**. It does not affect TrackAnything solve masking.
+- **Outputs → Dense environment reconstruction:** off by default. **Dense depth** chooses *Sampled views (fast)* (about 1–2 minutes extra) or *Full video depth (slow, original)*. This is separate from the native cloud.
+- **Cloud point limit:** limits native points exported/displayed, not SLAM computation or dense environment samples. Native points are reconstruction hypotheses, not surveyed points.
 - **Scene scale:** scales the entire imported result together. ViPE scale is not surveyed.
+
+## Results
+
+For the selected job: frames, focal length in mm at the filmback and in pixels, lens refinement, distortion if solved, native points, review error (median/p90) when witnesses exist, and stage timings. With witnesses, the camera carries an animated `vipe_reprojection_px` property: open the Graph Editor, select the camera and view that channel for per-frame error.
+
+- **Run Review Witnesses** submits a review-only job that reuses the solved camera on the worker and merges the witnesses into the existing collection. It needs the original worker job record (not a saved bundle) and is disabled once witnesses exist.
+- **Show Dense Environment** is enabled for jobs with a dense reconstruction.
+- **Export to Nuke…** writes a Nuke script and its data to a chosen folder and reports any warnings.
+- **Scene alignment** moves only the job's alignment parent, so the camera and points stay consistent. Select markers in Object Mode, or vertices (for example native cloud points) in Edit Mode. **Set Floor** fits a plane through 3+ points and makes it Z = 0 with its centroid at the origin and the camera above. **Set Origin** moves the centroid of the selection to the origin. **Set Scale** scales about the origin so two points are the entered distance apart. **Set X Axis** rotates about Z so the direction from the other point to the active point is +X. **Reset Alignment** restores the imported transform. All are undoable.
 
 Use constant-frame-rate square-pixel movies with orientation baked into the pixels. Check initial/final lens values in the panel and full manifest text block.
 
@@ -40,7 +54,7 @@ The dense view does not change the camera. Return to camera view with Numpad 0; 
 
 The movie remains an external local file. Dense texture images and cross meshes are stored in the saved Blender scene. Save a `.blend` to preserve the imported result.
 
-**Resume Job** reconnects without submitting again. **Read Job Log** loads a bounded log excerpt into a Blender text block. **Saved Bundle** imports a downloaded ZIP: select the matching original movie first, or clear Video plate for geometry-only import. Reimporting the same job preserves existing artist edits.
+**Jobs:** **Resume Job** reconnects without submitting again. **Read Job Log** loads a bounded log excerpt into a Blender text block. **Saved Bundle** imports a downloaded ZIP: select the matching original movie first, or clear Video plate for geometry-only import. Reimporting the same job preserves existing artist edits. **Recent jobs** lists the 40 newest `job.json` records in the download folder after **Refresh** (it never scans on redraw); **Load** selects one like Resume would, **Import** imports its downloaded result.
 
 ## Interpreting witnesses
 
@@ -50,7 +64,7 @@ CoTracker tracks image features independently of ViPE, but its 3D landmarks are 
 
 New submissions and **Resume Job** automatically follow worker output about once per second. **Echo logs to terminal** is enabled by default: launch Blender from a terminal to see the worker's stdout/stderr alongside Blender messages. On Windows, Blender's Window → Toggle System Console provides a console view.
 
-Click **Open Live Log** while a job is running to open its log in a Text Editor beside the viewport. Clicking again reuses that editor. Disable **Follow live output** to pause editor updates and scroll through a message; the job and terminal output continue. Enable it again to catch up, including after the job finishes. Each job has its own `ViPE Log <job-id>` text block.
+In **Logs**, click **Open Live Log** while a job is running to open its log in a Text Editor beside the viewport. Clicking again reuses that editor. Disable **Follow live output** to pause editor updates and scroll through a message; the job and terminal output continue. Enable it again to catch up, including after the job finishes. Each job has its own `ViPE Log <job-id>` text block.
 
 The editor retains the latest 262,144 characters. Resume starts with recent worker output, and bounded catch-up may omit older bytes; the display labels any omission. The complete underlying log stays at `<work_directory>/<job-id>/worker.log` on the worker. **Read Job Log** still fetches a recent snapshot for completed jobs.
 
