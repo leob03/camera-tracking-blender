@@ -22,6 +22,46 @@ COLORSPACES = [('ACEScg', 'ACEScg', 'Scene-linear ACEScg (typical VFX plates)'),
 DISPLAY = 'AgX Base sRGB'
 
 
+PROXY_VERSION = 1
+
+
+def _member(name):
+    # Fixed timestamps: the same frames always give the same archive bytes, so the
+    # worker recognises a rebuilt proxy as an upload (and camera solve) it already has.
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_STORED
+    info.external_attr = 0o644 << 16
+    return info
+
+
+def proxy_key(path, *, first_index=1, last_index=0, long_edge=1280, colorspace='ACEScg', fps=(24, 1)):
+    """Cache key for a proxy: selected frames' size and modification time, plus proxy settings."""
+    import hashlib
+    import os
+    directory, prefix, digits, suffix, frames = find_sequence(path)
+    selected = frames[first_index - 1:(last_index or len(frames))]
+    stats = []
+    for frame in selected:
+        st = os.stat(frame_path(directory, prefix, digits, suffix, frame))
+        stats.append((frame, st.st_size, st.st_mtime_ns))
+    data = dict(directory=str(Path(directory).resolve()), pattern=f'{prefix}{digits}{suffix}', frames=stats, long_edge=long_edge, colorspace=colorspace, fps=list(fps), version=PROXY_VERSION)
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def cached_proxy(destination):
+    """Return (archive, plate, first frame) if a complete proxy exists in destination."""
+    archive = Path(destination) / 'proxy_frames.zip'
+    if not archive.is_file():
+        return None
+    try:
+        with zipfile.ZipFile(archive) as z:
+            plate = json.loads(z.read('plate.json'))
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return None
+    first = Path(destination) / 'proxy' / f'proxy.{plate["first_frame"]:0{max(4, plate["pattern"].count("#"))}d}.jpg'
+    return (archive, plate, first) if first.is_file() else None
+
+
 def is_sequence(path):
     return Path(path).suffix.lower() in SEQUENCE_SUFFIXES
 
@@ -139,11 +179,11 @@ def build_proxy(path, destination, *, first_index=1, last_index=0, long_edge=128
             out.specmod().attribute('Compression', 'jpeg:95')
             if not out.write(str(output)):
                 raise ValueError(f'Cannot write the proxy frame: {out.geterror()}')
-            archive.write(output, f'frames/{index:06d}.jpg')
+            archive.writestr(_member(f'frames/{index:06d}.jpg'), output.read_bytes())
             progress('Preparing plate proxy', (index + 1) / len(selected))
         plate = dict(width=info['width'], height=info['height'], first_frame=selected[0], fps_num=int(fps[0]), fps_den=int(fps[1]),
                      colorspace=colorspace, pattern=info['pattern'], proxy_width=width, proxy_height=height, frame_count=len(selected))
-        archive.writestr('plate.json', json.dumps(plate, indent=2))
+        archive.writestr(_member('plate.json'), json.dumps(plate, indent=2, sort_keys=True))
     archive_path.with_suffix('.zip.part').replace(archive_path)
     first = frames_dir / f'proxy.{selected[0]:0{max(4, info["digits"])}d}.jpg'
     return archive_path, plate, first

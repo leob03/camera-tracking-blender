@@ -29,7 +29,7 @@ _log_buffers = {}
 JOB_MODES = ('submit', 'resume', 'review')
 STAGES = [('upload', "Upload"), ('queue', "Queue"), ('prepare', "Prepare"), ('solve', "Camera solve"), ('witnesses', "Review witnesses"), ('dense', "Dense"), ('package', "Package"), ('download', "Download"), ('import', "Import")]
 STAGE_ORDER = [key for key, _ in STAGES]
-STAGE_MESSAGES = [('Connecting to worker', 'upload'), ('Preparing plate proxy', 'upload'), ('Checking plate on worker', 'upload'), ('Plate already on worker', 'upload'), ('Uploading video', 'upload'), ('Waiting for worker', 'queue'), ('Starting ViPE worker', 'prepare'), ('Preparing video', 'prepare'), ('Preparing review', 'prepare'), ('Unpacking plate frames', 'prepare'), ('Estimating initial lens', 'solve'), ('Tracking camera', 'solve'), ('Saving frozen camera', 'solve'), ('Generating independent CoTracker', 'witnesses'), ('Loading independent CoTracker', 'witnesses'), ('Triangulating independent tracks', 'witnesses'), ('Computing optional dense', 'dense'), ('Dense ', 'dense'), ('Packaging tracking results', 'package'), ('Tracking results ready', 'package'), ('Downloading result', 'download')]
+STAGE_MESSAGES = [('Connecting to worker', 'upload'), ('Preparing plate proxy', 'upload'), ('Checking plate on worker', 'upload'), ('Plate already on worker', 'upload'), ('Uploading video', 'upload'), ('Waiting for worker', 'queue'), ('Starting ViPE worker', 'prepare'), ('Preparing video', 'prepare'), ('Preparing review', 'prepare'), ('Unpacking plate frames', 'prepare'), ('Estimating initial lens', 'solve'), ('Reusing camera solve', 'solve'), ('Tracking camera', 'solve'), ('Saving frozen camera', 'solve'), ('Generating independent CoTracker', 'witnesses'), ('Loading independent CoTracker', 'witnesses'), ('Triangulating independent tracks', 'witnesses'), ('Computing optional dense', 'dense'), ('Dense ', 'dense'), ('Packaging tracking results', 'package'), ('Tracking results ready', 'package'), ('Downloading result', 'download')]
 # Published horizontal filmback widths (mm) of the recording area.
 SENSOR_PRESETS = [
     ('CUSTOM', "Custom", "Enter the filmback width", 0.0),
@@ -290,7 +290,10 @@ def _import(props, record):
         parent['review_job_id'] = record['job_id']
         _save_record(parent)
         props.job_id, props.job_record, props.result_path = parent_id, json.dumps(parent), parent.get('result', '')
-        props.status = f"Review witnesses added to job {parent_id[:8]}"
+        added = [name for key, name in (('review_witnesses', 'review witnesses'), ('dense_environment', 'dense environment')) if record.get('extend', {'review_witnesses': True}).get(key)]
+        props.status = f"{' and '.join(added).capitalize()} added to job {parent_id[:8]}"
+        if record.get('extend', {}).get('dense_environment'):
+            props.status += '. Use Show Dense Environment.'
         return collection
     props.status = f"Imported {manifest['selection']['count']} camera frames and {manifest['cloud']['point_count']:,} native points." if created else "This job is already imported; its collection was preserved."
     if created:
@@ -359,7 +362,7 @@ def _run_network(mode, record, url, token, events, cancel, detach, log_buffer):
         elif mode == 'review':
             (folder / 'job.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
             emit('record', dict(record))
-            workflow = client.submit_review(record['parent_job_id'], record['job_id'])
+            workflow = client.submit_review(record['parent_job_id'], record['job_id'], **record.get('extend', {}))
             emit('connection', True)
             (folder / 'workflow_api.json').write_text(json.dumps(workflow, indent=2), encoding='utf-8')
         item = client.wait(record['job_id'], progress, cancel.is_set, detach.is_set, log=log_output)
@@ -548,37 +551,62 @@ class VIPE_OT_submit(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _extension_poll(cls, context, key, message):
+    props = context.scene.vipe_remote
+    if _active is not None:
+        return False
+    if not _has_remote_job(props):
+        cls.poll_message_set('Needs the worker job record; a saved bundle cannot be extended.')
+        return False
+    collection = job_collection(context)
+    if collection is None or _summary(collection).get(key):
+        cls.poll_message_set(message)
+        return False
+    return True
+
+
+def _launch_extension(operator, context, extend, status):
+    """Run optional stages on the worker for the current job, reusing its camera solve."""
+    props, prefs = context.scene.vipe_remote, preferences(context)
+    parent = _parent_record(_loads(props.job_record))
+    if not (parent.get('server') and parent.get('folder')):
+        operator.report({'ERROR'}, "The original job record is missing; load the job from Jobs first.")
+        return {'CANCELLED'}
+    identifier = str(uuid.uuid4())
+    record = {'job_id': identifier, 'parent_job_id': parent['job_id'], 'mode': 'review', 'extend': extend, 'server': parent['server'], 'folder': str(_cache_dir(prefs) / identifier), 'parent_folder': parent['folder'], 'source': parent.get('source', ''), 'source_sha256': parent.get('source_sha256'), 'start_frame': parent.get('start_frame', props.start_frame), 'marker_count': parent.get('marker_count', props.marker_count), 'scene_scale': parent.get('scene_scale', props.scene_scale), 'sensor_width': parent.get('sensor_width', props.sensor_mm), 'auto_import': True, 'settings': parent.get('settings', {}), **{key: parent[key] for key in ('upload', 'background', 'plate') if key in parent}}
+    parent['review_job_id'] = identifier
+    _save_record(parent)
+    props.job_id, props.job_record = identifier, json.dumps(record)
+    props.result_path, props.state, props.status, props.progress = '', 'RUNNING', status, 0
+    _launch(context, 'review', record)
+    return {'FINISHED'}
+
+
 class VIPE_OT_review(bpy.types.Operator):
     bl_idname = 'vipe_remote.review'
     bl_label = 'Run Review Witnesses'
     bl_description = 'Add independent CoTracker review witnesses to this job on the worker, reusing its solved camera; the solve is not changed'
     @classmethod
     def poll(cls, context):
-        props = context.scene.vipe_remote
-        if _active is not None:
+        return _extension_poll(cls, context, 'has_witnesses', 'This job already has review witnesses.')
+    def execute(self, context):
+        return _launch_extension(self, context, {'review_witnesses': True}, 'Submitting review job')
+
+
+class VIPE_OT_add_dense(bpy.types.Operator):
+    bl_idname = 'vipe_remote.add_dense'
+    bl_label = 'Add Dense Environment'
+    bl_description = 'Compute dense geometry for this job on the worker, reusing its solved camera, and add it to this scene'
+    @classmethod
+    def poll(cls, context):
+        if not _extension_poll(cls, context, 'dense', 'This job already has a dense environment.'):
             return False
-        if not _has_remote_job(props):
-            cls.poll_message_set('Needs the worker job record; a saved bundle cannot be reviewed.')
-            return False
-        collection = job_collection(context)
-        if collection is None or _summary(collection).get('has_witnesses'):
-            cls.poll_message_set('This job already has review witnesses.')
+        if _summary(job_collection(context)).get('distortion'):
+            cls.poll_message_set('Dense environment does not support lens distortion yet.')
             return False
         return True
     def execute(self, context):
-        props, prefs = context.scene.vipe_remote, preferences(context)
-        parent = _parent_record(_loads(props.job_record))
-        if not (parent.get('server') and parent.get('folder')):
-            self.report({'ERROR'}, "The original job record is missing; load the job from Jobs first.")
-            return {'CANCELLED'}
-        identifier = str(uuid.uuid4())
-        record = {'job_id': identifier, 'parent_job_id': parent['job_id'], 'mode': 'review', 'server': parent['server'], 'folder': str(_cache_dir(prefs) / identifier), 'parent_folder': parent['folder'], 'source': parent.get('source', ''), 'source_sha256': parent.get('source_sha256'), 'start_frame': parent.get('start_frame', props.start_frame), 'marker_count': parent.get('marker_count', props.marker_count), 'scene_scale': parent.get('scene_scale', props.scene_scale), 'sensor_width': parent.get('sensor_width', props.sensor_mm), 'auto_import': True, 'settings': parent.get('settings', {}), **{key: parent[key] for key in ('upload', 'background', 'plate') if key in parent}}
-        parent['review_job_id'] = identifier
-        _save_record(parent)
-        props.job_id, props.job_record = identifier, json.dumps(record)
-        props.result_path, props.state, props.status, props.progress = '', 'RUNNING', 'Submitting review job', 0
-        _launch(context, 'review', record)
-        return {'FINISHED'}
+        return _launch_extension(self, context, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': context.scene.vipe_remote.dense_mode}, 'Submitting dense job')
 
 
 class VIPE_OT_resume(bpy.types.Operator):
@@ -710,24 +738,38 @@ class VIPE_OT_open_log(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _dense_layer(context):
+    parent = job_collection(context)
+    for child in parent.children if parent else []:
+        if child.get('vipe_role') == 'dense_environment_group':
+            return context.view_layer.layer_collection.children[parent.name].children[child.name], child
+    return None, None
+
+
 class VIPE_OT_view_environment(bpy.types.Operator):
     bl_idname = 'vipe_remote.view_environment'
     bl_label = 'Show Dense Environment'
-    bl_description = 'Reveal the selected job’s dense samples in material preview; camera solve stays unchanged'
+    bl_description = 'Show or hide the selected job’s dense samples; the camera solve stays unchanged'
+    show: BoolProperty(default=True, options={'SKIP_SAVE'})
     def execute(self, context):
-        parent = job_collection(context)
-        for child in parent.children if parent else []:
-            if child.get('vipe_role') == 'dense_environment_group':
-                layer = context.view_layer.layer_collection.children[parent.name].children[child.name]
-                layer.hide_viewport = False
-                for obj in context.selected_objects: obj.select_set(False)
-                for obj in child.all_objects:
-                    if obj.get('vipe_role') == 'dense_samples': obj.select_set(True)
-                context.space_data.shading.type = 'MATERIAL'
+        layer, child = _dense_layer(context)
+        if layer is None:
+            self.report({'INFO'}, 'This job has no dense environment. Use Add Dense Environment.')
+            return {'CANCELLED'}
+        layer.hide_viewport = not self.show
+        space = context.space_data if context.space_data and context.space_data.type == 'VIEW_3D' else None
+        if self.show:
+            for obj in context.selected_objects: obj.select_set(False)
+            for obj in child.all_objects:
+                if obj.get('vipe_role') == 'dense_samples': obj.select_set(True)
+            if space:
+                space.shading.type = 'MATERIAL'
                 bpy.ops.view3d.view_selected(use_all_regions=False)
-                return {'FINISHED'}
-        self.report({'INFO'}, 'This job has no dense environment. Enable Dense environment reconstruction before submitting.')
-        return {'CANCELLED'}
+        elif space:
+            # Back to the lightweight camera review.
+            space.shading.type = 'SOLID'
+            space.region_3d.view_perspective = 'CAMERA'
+        return {'FINISHED'}
 
 
 class VIPE_OT_export_nuke(bpy.types.Operator):
@@ -1102,12 +1144,15 @@ class VIPE_PT_results(_SubPanel, bpy.types.Panel):
             for wrapped in textwrap.wrap(line, width):
                 column.label(text=wrapped)
         if summary.get('has_witnesses'):
-            _hint(layout, 'Per-frame error: Graph Editor › camera › vipe_reprojection_px', width)
+            _hint(layout, 'Per-frame review error (plate pixels, lower is better): Graph Editor › camera › vipe_reprojection_px', width)
         column = layout.column(align=True)
         column.operator('vipe_remote.review', icon='TRACKER')
-        row = column.row(align=True)
-        row.enabled = bool(summary.get('dense'))
-        row.operator('vipe_remote.view_environment', icon='MESH_GRID')
+        if summary.get('dense'):
+            layer, _ = _dense_layer(context)
+            visible = layer is not None and not layer.hide_viewport
+            column.operator('vipe_remote.view_environment', text='Hide Dense Environment' if visible else 'Show Dense Environment', icon='HIDE_ON' if visible else 'MESH_GRID').show = not visible
+        else:
+            column.operator('vipe_remote.add_dense', icon='MESH_GRID')
         column.operator('vipe_remote.export_nuke', text='Export to Nuke…', icon='EXPORT')
         box = layout.box()
         box.label(text='Scene alignment', icon='ORIENTATION_GLOBAL')
@@ -1127,7 +1172,7 @@ class VIPE_PT_jobs(_SubPanel, bpy.types.Panel):
         layout, props, wm = self.layout, context.scene.vipe_remote, context.window_manager
         record = _loads(props.job_record)
         if props.job_id:
-            layout.label(text=f"Review {props.job_id[:8]} of job {record.get('parent_job_id', '')[:8]}" if record.get('mode') == 'review' else f"Job {props.job_id[:8]}")
+            layout.label(text=f"Extension {props.job_id[:8]} of job {record.get('parent_job_id', '')[:8]}" if record.get('mode') == 'review' else f"Job {props.job_id[:8]}")
         row = layout.row(align=True)
         row.operator('vipe_remote.resume', icon='FILE_REFRESH')
         row.operator('vipe_remote.log', icon='TEXT')
@@ -1167,7 +1212,7 @@ def _before_load(_):
     _log_buffers.clear()
 
 
-CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
+CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
 PANELS = [cls for cls in CLASSES if issubclass(cls, bpy.types.Panel)]
 
 

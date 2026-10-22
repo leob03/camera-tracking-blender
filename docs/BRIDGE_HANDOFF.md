@@ -25,7 +25,7 @@ A future adapter can replace `Client` operations with the shared bridge while pr
 | Bounded log | `GET /vipe/jobs/{id}/log` |
 | Bundle download | `GET /view?filename=result.zip&subfolder=vipe/{id}&type=output` |
 | Find uploaded plate | `GET /vipe/uploads/{sha256}?suffix=.mp4` (404 if absent) |
-| Review existing job | `POST /prompt` with `ViPEReviewJob` (`parent_job_id`, `request_id`) |
+| Extend existing job | `POST /prompt` with `ViPEReviewJob` (`parent_job_id`, `request_id`, optional `review_witnesses`, `dense_environment`, `dense_mode`) |
 
 Upload returns a worker-relative video path, SHA256 and byte count. Submit includes that identity, source basename, UUID and settings. The source SHA256 is verified before inference and before using a selected local movie as the camera background. Output descriptors include a bundle SHA256. Neither artist filesystem paths nor server executable paths are accepted as uploaded job settings.
 

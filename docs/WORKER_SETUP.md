@@ -27,7 +27,7 @@ Preflight checks interfaces and configured files. A passing preflight is not an 
 python scripts/build_packages.py
 ```
 
-Extract `dist/comfyui_vipe_remote-0.4.0.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
+Extract `dist/comfyui_vipe_remote-0.4.1.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
 
 Set `VIPE_WORKER_CONFIG` in the ComfyUI server environment, then restart ComfyUI:
 
@@ -76,3 +76,9 @@ The defaults keep the reviewed behaviour of the 16 GB development card. On large
 - **Image-sequence plates.** A `.zip` upload containing `frames/000000.jpg…` and `plate.json` (built by the Blender add-on from an EXR/DPX/TIFF sequence) is rebuilt into the worker movie. `plate_width/plate_height` make the camera report in original plate pixels.
 - **Square pixels.** Intrinsics keep the horizontal field of view with `fx = fy`, so rounding the processing size to even pixels no longer creates a pixel aspect in Blender.
 - **Status detail.** `GET /vipe/jobs/{id}` adds `detail` (latest progress bar, CoTracker window or dense view) from an 8 KiB log tail.
+
+## What changed in 0.4.1
+
+- **Camera solve reuse.** Every camera solve keeps its reusable state in the job directory (`plate.mp4`, `native_points.npz`, `native_slam_map.pt`, `depth_context.npz`, bit-packed `solve_masks.zip`, `camera_manifest.json`) and is registered in `<work_directory>/solve_index.json`, keyed by the plate checksum, every solve-affecting setting and `SOLVE_RECIPE`. A later job with the same key hard-links that state, resamples the cloud for its own point limit and runs only its optional stages. Bump `SOLVE_RECIPE` in `worker.py` whenever the camera stage changes. Deleting a job directory simply makes its solve unavailable for reuse.
+- **Job extensions.** `ViPEReviewJob` accepts optional `review_witnesses` (default true), `dense_environment` and `dense_mode`, so review witnesses and dense geometry can each be added to a finished job. Dense extensions need the solve state above (jobs solved with 0.4.1 or later).
+- Solve masks are always captured (bit-packed, fast compression) so dense can be added later; the dense stage still reads the older format.

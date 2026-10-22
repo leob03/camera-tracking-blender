@@ -35,7 +35,9 @@ class Layout:
     def operator(self, idname, text=None, icon='NONE', **kwargs):
         self._icon(icon); module, name = idname.split('.')
         getattr(getattr(bpy.ops, module), name).get_rna_type()
-        self.log.append('op:' + idname); return types.SimpleNamespace()
+        self.log.append('op:' + idname)
+        if text: self.log.append('optext:' + text)
+        return types.SimpleNamespace()
     def separator(self, **kwargs): pass
     def progress(self, factor=0, type='BAR', text=''): assert 0 <= factor <= 1; self.log.append('progress:' + text)
     def template_list(self, listtype, list_id, data, name, active_data, active_name, **kwargs):
@@ -179,8 +181,8 @@ assert calls == [(collection.name, str(TMP))] and 'shot.nk' in props.status
 submitted, imported = [], []
 class ScriptedClient:
     def __init__(self, url, token): assert url == prefs.worker_url
-    def submit_review(self, parent_job_id, identifier):
-        submitted.append((parent_job_id, identifier)); return {'1': {'class_type': 'ViPEReviewJob'}}
+    def submit_review(self, parent_job_id, identifier, **extend):
+        submitted.append((parent_job_id, identifier, extend)); return {'1': {'class_type': 'ViPEReviewJob'}}
     def wait(self, identifier, progress, cancel, detach, log=None):
         progress('Preparing review', .05)
         for i in range(4):
@@ -211,7 +213,7 @@ try:
             assert any(line.startswith('Elapsed ') for line in log) and 'op:vipe_remote.cancel' in log
             drawn += 1
     assert S('witnesses') in seen and drawn, (seen, drawn)
-    assert submitted == [(PARENT, review_id)]
+    assert submitted == [(PARENT, review_id, {'review_witnesses': True})], submitted
     assert props.job_id == PARENT and props.status == f'Review witnesses added to job {PARENT[:8]}', props.status
     assert json.loads(props.job_record)['review_job_id'] == review_id and props.result_path == str(parent_folder / 'result.zip')
     assert imported[0]['sensor_width'] == 27.99 and imported[0]['start_frame'] == 1001 and imported[0]['marker_count'] == 50
@@ -235,6 +237,27 @@ try:
     assert bpy.ops.vipe_remote.load_job() == {'FINISHED'} and props.job_id == PARENT and props.state == 'READY'
     assert bpy.ops.vipe_remote.import_job() == {'FINISHED'} and props.status == 'This job is already imported; its collection was preserved.'
     assert imported[-1]['sensor_width'] == 27.99
+
+    # Add Dense Environment runs the same extension path with dense flags and merges into the job.
+    submitted.clear()
+    collection['vipe_summary'] = json.dumps({**json.loads(collection['vipe_summary']), 'dense': False, 'distortion': None})
+    assert 'op:vipe_remote.add_dense' in draw_all()
+    assert bpy.ops.vipe_remote.add_dense() == {'FINISHED'}
+    dense_id = props.job_id
+    deadline = time.monotonic() + 10
+    while addon._active is not None:
+        addon._poll(); time.sleep(.02); assert time.monotonic() < deadline
+    assert submitted == [(PARENT, dense_id, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': props.dense_mode})], submitted
+    assert props.job_id == PARENT and props.status.startswith(f'Dense environment added to job {PARENT[:8]}'), props.status
+    # Show / Hide Dense Environment toggles the job's dense layer.
+    group = bpy.data.collections.new('05 Dense environment'); group['vipe_role'] = 'dense_environment_group'; collection.children.link(group)
+    collection['vipe_summary'] = json.dumps({**json.loads(collection['vipe_summary']), 'dense': True})
+    layer = bpy.context.view_layer.layer_collection.children[collection.name].children[group.name]
+    layer.hide_viewport = True
+    log = draw_all(); assert 'optext:Show Dense Environment' in log and 'op:vipe_remote.add_dense' not in log
+    assert bpy.ops.vipe_remote.view_environment(show=True) == {'FINISHED'} and not layer.hide_viewport
+    assert 'optext:Hide Dense Environment' in draw_all()
+    assert bpy.ops.vipe_remote.view_environment(show=False) == {'FINISHED'} and layer.hide_viewport
 finally:
     addon.Client, addon.load_bundle, addon.import_bundle = original
     addon._before_load(None)

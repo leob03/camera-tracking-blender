@@ -1,5 +1,14 @@
 # Changes
 
+## Blender add-on 0.5.1 / ComfyUI node pack 0.4.1
+
+- Resubmitting reuses the earlier camera solve when the plate and solve settings are unchanged; only newly requested outputs run (for example dense or review witnesses).
+- **Add Dense Environment** in Results adds dense geometry to a finished job and merges it into the scene, like Run Review Witnesses.
+- **Show / Hide Dense Environment** toggle.
+- Timeline, Dope Sheet and Graph Editors are framed to the imported frames after an import.
+- Image-sequence proxies are byte-identical when rebuilt and cached in the download folder, so resubmitting the same frames skips both the proxy build and the upload.
+- Clearer description of the per-frame review error.
+
 ## Blender add-on 0.5.0 / ComfyUI node pack 0.4.0
 
 Workflow

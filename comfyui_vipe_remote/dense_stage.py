@@ -14,7 +14,8 @@ def capture_masks(pipeline, work):
     """Record exactly the masks consumed by SLAM, with one open archive."""
     import torch
     from vipe.streams.base import ProcessedVideoStream, StreamProcessor
-    archive = zipfile.ZipFile(work / 'solve_masks.zip', 'w', zipfile.ZIP_DEFLATED)
+    # Captured for every solve, so keep it cheap: bit-packed masks, fast compression.
+    archive = zipfile.ZipFile(work / 'solve_masks.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=1)
     seen = set()
     class RecordMasks(StreamProcessor):
         def __call__(self, index, frame):
@@ -23,13 +24,23 @@ def capture_masks(pipeline, work):
                 sky = frame.sky_mask
                 excluded = frame.instance != 0 if frame.instance is not None else ~valid
                 payload = io.BytesIO()
-                np.savez_compressed(payload, valid=valid.cpu().numpy(), sky=sky.cpu().numpy(), excluded=excluded.cpu().numpy())
+                np.savez(payload, shape=np.array(valid.shape), valid=np.packbits(valid.cpu().numpy()), sky=np.packbits(sky.cpu().numpy()), excluded=np.packbits(excluded.cpu().numpy()))
                 archive.writestr(f'{index:06d}.npz', payload.getvalue())
                 seen.add(index)
             return frame
     original = pipeline._add_init_processors
     pipeline._add_init_processors = lambda stream: ProcessedVideoStream(original(stream), [RecordMasks()])
     return archive
+
+
+def read_masks(raw):
+    """Read one frame's masks (bit-packed since node pack 0.4.1, plain boolean before)."""
+    with np.load(io.BytesIO(raw), allow_pickle=False) as data:
+        if 'shape' not in data.files:
+            return data['valid'], data['sky'], data['excluded']
+        shape = tuple(data['shape'])
+        size = int(np.prod(shape))
+        return tuple(np.unpackbits(data[key])[:size].reshape(shape).astype(bool) for key in ('valid', 'sky', 'excluded'))
 
 
 def surface_arrays(depth, rgb, excluded, intrinsics, pose, stride):
@@ -134,10 +145,10 @@ def run(request_path, config_path):
                 frame.pose = slam.get_view_trajectory(0)[index]
                 frame.intrinsics = intrinsic.clone()
                 frame.camera_type = CameraType.PINHOLE
-                with np.load(io.BytesIO(masks.read(f'{index:06d}.npz')),allow_pickle=False) as data:
-                    frame.mask = torch.from_numpy(data['valid']).to(frame.device)
-                    sky = torch.from_numpy(data['sky']).to(frame.device)
-                    excluded = torch.from_numpy(data['excluded']).to(frame.device)
+                valid, sky, excluded = read_masks(masks.read(f'{index:06d}.npz'))
+                frame.mask = torch.from_numpy(valid).to(frame.device)
+                sky = torch.from_numpy(sky).to(frame.device)
+                excluded = torch.from_numpy(excluded).to(frame.device)
                 frame.instance = excluded.to(torch.uint8)
                 frame.instance[sky] = 2
                 frame.instance_phrases = {1:'excluded',2:'sky'}
@@ -145,7 +156,7 @@ def run(request_path, config_path):
                 factor=min(1.,1280/max(h,w))
                 if factor<1:frame=frame.resize((max(2,round(h*factor/2)*2),max(2,round(w*factor/2)*2)))
                 return frame
-        fast = manifest['settings'].get('dense_mode', 'fast') == 'fast'
+        fast = request['settings'].get('dense_mode', 'fast') == 'fast'
         frames = RawMp4Stream(work/'plate.mp4')
         if fast:
             # Only the sampled views are kept, so depth is computed only for them: PriorDA

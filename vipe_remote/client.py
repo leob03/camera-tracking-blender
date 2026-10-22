@@ -136,12 +136,18 @@ class Client:
             raise ValueError(f"Worker rejected the camera workflow: {response}")
         return workflow
 
-    def submit_review(self, parent_job_id, identifier):
+    def submit_review(self, parent_job_id, identifier, review_witnesses=True, dense_environment=False, dense_mode="fast"):
+        """Add review witnesses and/or dense geometry to a finished job, reusing its camera solve."""
         identifier = str(uuid.UUID(identifier))
         caps = self.capabilities()
         if caps.get("review_jobs") != "ViPEReviewJob":
-            raise ValueError("This worker cannot add review witnesses to an existing job. Update the ComfyUI node pack.")
-        workflow = {"1": {"class_type": "ViPEReviewJob", "inputs": {"parent_job_id": str(uuid.UUID(parent_job_id)), "request_id": identifier}, "_meta": {"title": "ViPE review witnesses"}}}
+            raise ValueError("This worker cannot extend an existing job. Update the ComfyUI node pack.")
+        inputs = {"parent_job_id": str(uuid.UUID(parent_job_id)), "request_id": identifier}
+        if dense_environment:
+            if "dense_environment" not in caps.get("extend_jobs", []):
+                raise ValueError("This worker cannot add dense geometry to an existing job. Update the ComfyUI node pack.")
+            inputs.update(review_witnesses=bool(review_witnesses), dense_environment=True, dense_mode=dense_mode)
+        workflow = {"1": {"class_type": "ViPEReviewJob", "inputs": inputs, "_meta": {"title": "ViPE job extension"}}}
         response = self.request("POST", "/prompt", {"prompt": workflow, "prompt_id": identifier, "client_id": "blender-vipe-" + identifier})
         if response.get("prompt_id") != identifier or response.get("node_errors"):
             raise ValueError(f"Worker rejected the review workflow: {response}")

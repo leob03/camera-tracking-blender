@@ -89,6 +89,22 @@ def _review_viewports():
                 space.overlay.show_extras = True
                 space.overlay.show_relationship_lines = False
                 space.region_3d.view_perspective = 'CAMERA'
+    _frame_timelines()
+
+
+def _frame_timelines():
+    """Fit the Timeline/Dope Sheet (scene range) and Graph Editors to the imported frames."""
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            operator = {'DOPESHEET_EDITOR': 'action', 'GRAPH_EDITOR': 'graph'}.get(area.type)
+            region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+            if operator is None or region is None:
+                continue
+            try:
+                with bpy.context.temp_override(window=window, area=area, region=region):
+                    getattr(bpy.ops, operator).view_all()
+            except RuntimeError:
+                pass  # an editor without content must not stop the import
 
 
 def _child_collection(parent, name, role):
@@ -219,27 +235,49 @@ def _key_review_errors(cam, start_frame, frames, errors):
 
 
 def _merge_review(parent, manifest, camera, cloud, marker_count):
-    """Add review witnesses from a review-only job to the already imported parent job."""
+    """Merge an extension job (review witnesses and/or dense geometry) into the imported parent job."""
     if parent.get('vipe_source_sha256') != manifest['source']['sha256']:
-        raise ValueError('The review bundle belongs to a different plate.')
+        raise ValueError('The extension bundle belongs to a different plate.')
+    previous = json.loads(parent.get('vipe_summary', '{}'))
     groups = {child.get('vipe_role'): child for child in parent.children}
     root = next(obj for obj in parent.objects if obj.get('vipe_role') == 'alignment')
-    markers, crosses = groups['static_tracks_group'], groups['review_crosses_group']
-    for obj in list(markers.objects) + list(crosses.all_objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
     start_frame = int(parent.get('vipe_start_frame', 1))
-    _make_original_witnesses(crosses, markers, root, camera, cloud.get('audit'), manifest, start_frame, marker_count)
     cam = bpy.data.objects.get(parent.get('vipe_camera', ''))
-    frames, errors = review_errors(camera, cloud['audit'], manifest['selection']['first_source_frame'])
-    if cam is not None:
-        _key_review_errors(cam, start_frame, frames, errors)
+    errors = None
+    add_witnesses = cloud.get('audit') is not None and not previous.get('has_witnesses')
+    if add_witnesses:
+        markers, crosses = groups['static_tracks_group'], groups['review_crosses_group']
+        for obj in list(markers.objects) + list(crosses.all_objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        _make_original_witnesses(crosses, markers, root, camera, cloud.get('audit'), manifest, start_frame, marker_count)
+        frames, errors = review_errors(camera, cloud['audit'], manifest['selection']['first_source_frame'])
+        if cam is not None:
+            _key_review_errors(cam, start_frame, frames, errors)
+    add_dense = bool(cloud.get('environment')) and 'dense_environment_group' not in groups
+    if add_dense:
+        from .environment import import_environment
+        dense = import_environment(parent, root, cloud['environment'])
+        for layer in bpy.context.scene.view_layers:
+            layer.layer_collection.children[parent.name].children[dense.name].hide_viewport = True
     focal_mm = cam.data.lens if cam is not None else 0.0
     sensor = cam.data.sensor_width if cam is not None else 36.0
-    _summary(parent, manifest, camera, cloud, focal_mm, sensor, errors)
+    summary = _summary(parent, manifest, camera, cloud, focal_mm, sensor, errors)
+    # Keep what earlier extensions added; each extension bundle starts from the original solve.
+    if previous.get('has_witnesses') and not add_witnesses:
+        summary.update({key: previous.get(key) for key in ('witness_landmarks', 'reprojection_px_median', 'reprojection_px_p90', 'has_witnesses')})
+    summary.update(job_id=previous.get('job_id', summary['job_id']), dense=bool(previous.get('dense') or summary['dense']), timings={**previous.get('timings', {}), **summary['timings']})
+    parent['vipe_summary'] = json.dumps(summary)
     report = bpy.data.texts.get(parent.get('vipe_manifest_text', ''))
     if report is not None:
+        merged = json.loads(report.as_string() or '{}')
+        for key in ('witnesses', 'environment'):
+            if manifest.get(key):
+                merged[key] = manifest[key]
+        merged['files'] = {**merged.get('files', {}), **manifest['files']}
+        merged['timings_seconds'] = {**merged.get('timings_seconds', {}), **manifest.get('timings_seconds', {})}
+        merged['version'] = max(merged.get('version', 1), manifest['version'])
         report.clear()
-        report.write(json.dumps(manifest, indent=2))
+        report.write(json.dumps(merged, indent=2))
     parent['vipe_review_merged'] = True
     parent['vipe_review_job_id'] = manifest['job_id']
     return parent
@@ -253,8 +291,8 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
             return existing, False
     parent = next((c for c in bpy.context.scene.collection.children if manifest.get('review_of') and c.get('vipe_job_id') == manifest['review_of']), None)
     if parent is not None:
-        if cloud.get('audit') is None:
-            raise ValueError('The review bundle has no independent landmarks.')
+        if cloud.get('audit') is None and not cloud.get('environment'):
+            raise ValueError('The extension bundle adds neither review witnesses nor dense geometry.')
         return _merge_review(parent, manifest, camera, cloud, marker_count), False
     if not math.isfinite(sensor_width) or sensor_width <= 0:
         raise ValueError("Sensor width must be positive and finite.")

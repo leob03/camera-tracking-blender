@@ -75,3 +75,18 @@ Full-shot A/B (1280 px, held-out review residuals in plate pixels, same independ
 No shot improved by more than 1.5%. On `skateboard_alley` the distortion solve fits the evidence equally well with a 27% shorter focal length, so focal length and distortion are not separable from this footage even over the full shot. The option stays experimental and off by default; a future refinement should constrain distortion (lens grid, prior, or long-track bundle adjustment) rather than trust this one-parameter estimate. Review witnesses with cached evidence took 25–36 s on the 262–318-frame shots and 121 s on the 1059-frame shot.
 
 Tests (Blender 4.2.3 LTS and 4.4.0, background, isolated user folders): `blender_ui_register.py`, `blender_scene_tools.py`, `blender_live_logs.py`, `blender_nuke_export.py`, `blender_import_features.py` (real 0.4.0 bundles: filmback/constant lens/square pixels, review merge, distortion import, image-sequence import), `blender_plate_proxy.py`; CPU: `test_lens_math.py`, `test_job_logs.py`, `test_exr_writer.py`. Nuke itself was not available: the `.nk` syntax, STMap input order, BakedPointCloud serialization and `win_translate` units remain to be confirmed in Nuke (see NUKE.md).
+
+## Add-on 0.5.1 / node pack 0.4.1: solve reuse and job extensions (2026-10-22)
+
+`skateboard_alley` frames 1–48 at 640 px, then the 96-frame synthetic EXR proxy, one job at a time on the same worker:
+
+| Job | Worker wall | What ran |
+| --- | ---: | --- |
+| Fresh camera solve | 37.2 s | camera solve |
+| Same plate and settings, dense on | 23.9 s | solve reused (0.2 s), dense only |
+| Add Dense Environment to the first job | 26.9 s | dense only, merged into the existing collection |
+| Run Review Witnesses on the first job | 12.9 s | witnesses only (cached evidence) |
+| Same plate, point limit 5,000 | 0.1 s | solve reused, cloud resampled to exactly 5,000 points |
+| EXR proxy resubmitted | — | upload and solve reused (identical archive bytes) |
+
+Blender 4.2.3 and 4.4.0: `blender_extension_merge.py` (review then dense merged into one job; witnesses kept, dense hidden, summary and manifest combined, Show/Hide toggle), `blender_ui_register.py` (Add Dense flow, toggle labels), `blender_plate_proxy.py` (byte-identical rebuild, cache hit on resubmit), plus the earlier suite; 0.4.0 bundles still import.

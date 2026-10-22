@@ -227,10 +227,10 @@ class ViPECameraTrack:
 
 
 class ViPEReviewJob:
-    """Add independent review witnesses to an existing job without solving again."""
+    """Add review witnesses and/or dense geometry to an existing job without solving again."""
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"parent_job_id": ("STRING", {"default": ""}), "request_id": ("STRING", {"default": ""})}}
+        return {"required": {"parent_job_id": ("STRING", {"default": ""}), "request_id": ("STRING", {"default": ""})}, "optional": {"review_witnesses": ("BOOLEAN", {"default": True}), "dense_environment": ("BOOLEAN", {"default": False}), "dense_mode": (["fast", "video"], {"default": "fast"})}}
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("result_bundle",)
@@ -242,15 +242,22 @@ class ViPEReviewJob:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def review(self, parent_job_id, request_id):
+    def review(self, parent_job_id, request_id, review_witnesses=True, dense_environment=False, dense_mode="fast"):
         parent, identifier = job_id(parent_job_id), job_id(request_id)
-        parent_request = json.loads((work_path(parent) / "request.json").read_text(encoding="utf-8"))
+        parent_work = work_path(parent)
+        parent_request = json.loads((parent_work / "request.json").read_text(encoding="utf-8"))
         parent_output = Path(parent_request["output"])
         manifest = json.loads((parent_output / "result.json").read_text(encoding="utf-8"))
-        if manifest.get("witnesses"):
-            raise ValueError("This job already includes review witnesses.")
+        witnesses = review_witnesses and not manifest.get("witnesses")
+        dense = dense_environment and not manifest.get("environment")
+        if not (witnesses or dense):
+            raise ValueError("This job already includes the requested outputs.")
+        if dense and manifest["camera"].get("lens_distortion"):
+            raise ValueError("Dense environment reconstruction does not support lens distortion yet.")
+        if dense and not all((parent_work / name).is_file() for name in DENSE_STATE):
+            raise ValueError("This job was solved before dense data was kept. Submit the plate again with Dense enabled; the upload is reused.")
         source = Path(parent_request["source"])
-        if not source.is_file():
+        if witnesses and not source.is_file():
             raise ValueError("The parent job's uploaded plate is no longer on this worker; submit the plate again.")
         work = new_job_directory(identifier)
         output = Path(folder_paths.get_output_directory()) / "vipe" / identifier
@@ -258,12 +265,18 @@ class ViPEReviewJob:
         for name in ["result.json", *manifest["files"]]:
             (output / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(parent_output / name, output / name)
-        for name in ("camera_distortion.json",):
-            if (work_path(parent) / name).is_file():
-                shutil.copyfile(work_path(parent) / name, work / name)
-        settings = {**parent_request["settings"], "review_witnesses": True, "dense_environment": False}
+        for name in ["camera_distortion.json", *(DENSE_STATE if dense else [])]:
+            if (parent_work / name).is_file():
+                try:
+                    os.link(parent_work / name, work / name)
+                except OSError:
+                    shutil.copyfile(parent_work / name, work / name)
+        settings = {**parent_request["settings"], "review_witnesses": witnesses, "dense_environment": dense, "dense_mode": dense_mode}
         request = {**parent_request, "job_id": identifier, "output": str(output), "settings": settings, "review_of": parent}
         return run_worker(identifier, request, output)
+
+
+DENSE_STATE = ["plate.mp4", "native_slam_map.pt", "depth_context.npz", "solve_masks.zip"]
 
 
 routes = PromptServer.instance.routes
@@ -272,7 +285,7 @@ routes = PromptServer.instance.routes
 @routes.get("/vipe/capabilities")
 async def capabilities(request):
     cfg = config()
-    return web.json_response({"protocol_version": 1, "live_logs": "byte_cursor_v1", "node": "ViPECameraTrack", "max_upload_bytes": cfg.get("max_upload_bytes", 1024**3), "outputs": ["camera", "native_cloud", "scene_markers", "independent_audit_landmarks", "artist_witnesses", "dense_environment"], "job_cancellation": "by_prompt_id", "dense_depth": True, "optional_stages": {"review_witnesses": False, "dense_environment": False}, "optional_inputs": sorted(OPTIONAL_INPUTS), "upload_reuse": "sha256_v1", "review_jobs": "ViPEReviewJob", "status_detail": True, "frame_archives": "proxy_frames_v1"})
+    return web.json_response({"protocol_version": 1, "live_logs": "byte_cursor_v1", "node": "ViPECameraTrack", "max_upload_bytes": cfg.get("max_upload_bytes", 1024**3), "outputs": ["camera", "native_cloud", "scene_markers", "independent_audit_landmarks", "artist_witnesses", "dense_environment"], "job_cancellation": "by_prompt_id", "dense_depth": True, "optional_stages": {"review_witnesses": False, "dense_environment": False}, "optional_inputs": sorted(OPTIONAL_INPUTS), "upload_reuse": "sha256_v1", "review_jobs": "ViPEReviewJob", "extend_jobs": ["review_witnesses", "dense_environment"], "solve_reuse": True, "status_detail": True, "frame_archives": "proxy_frames_v1"})
 
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm", ".zip"}
@@ -454,5 +467,5 @@ class ViPETrackVideo:
 
 
 NODE_CLASS_MAPPINGS.update({"ViPEVideoInput": ViPEVideoInput, "ViPETrackVideo": ViPETrackVideo, "ViPEReviewJob": ViPEReviewJob})
-NODE_DISPLAY_NAME_MAPPINGS.update({"ViPEVideoInput": "ViPE · Upload Video", "ViPETrackVideo": "ViPE · Solve Camera + Native Cloud", "ViPEReviewJob": "ViPE · Add Review Witnesses to Job"})
+NODE_DISPLAY_NAME_MAPPINGS.update({"ViPEVideoInput": "ViPE · Upload Video", "ViPETrackVideo": "ViPE · Solve Camera + Native Cloud", "ViPEReviewJob": "ViPE · Add Review or Dense to Job"})
 WEB_DIRECTORY = "./web"

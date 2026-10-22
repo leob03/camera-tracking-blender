@@ -29,12 +29,14 @@ Choose a local video, select a frame range, and click **Submit Tracking Job**. K
 - **Cloud point limit:** limits native points exported/displayed, not SLAM computation or dense environment samples. Native points are reconstruction hypotheses, not surveyed points.
 - **Scene scale:** scales the entire imported result together. ViPE scale is not surveyed.
 
+Resubmitting a plate never re-uploads it, and the worker reuses an earlier camera solve whenever the plate and the solve settings (frame range, processing size, masking, lens) are unchanged; only newly requested outputs run. Image-sequence proxies are cached in the download folder, so resubmitting the same frames does not read the plates again. After an import, Timeline, Dope Sheet and Graph Editors are framed to the imported frames.
+
 ## Results
 
-For the selected job: frames, focal length in mm at the filmback and in pixels, lens refinement, distortion if solved, native points, review error (median/p90) when witnesses exist, and stage timings. With witnesses, the camera carries an animated `vipe_reprojection_px` property: open the Graph Editor, select the camera and view that channel for per-frame error.
+For the selected job: frames, focal length in mm at the filmback and in pixels, lens refinement, distortion if solved, native points, review error (median/p90) when witnesses exist, and stage timings. With witnesses, the camera carries an animated `vipe_reprojection_px` property: open the Graph Editor and select the camera. The horizontal axis is the timeline frame; the vertical value is, for that frame, the median distance in plate pixels between where independent CoTracker tracks see a static point and where the solved camera projects it (held-out observations only). Lower is better; isolated spikes point at frames worth checking. Values scale with plate resolution, so compare frames within a shot rather than across shots.
 
-- **Run Review Witnesses** submits a review-only job that reuses the solved camera on the worker and merges the witnesses into the existing collection. It needs the original worker job record (not a saved bundle) and is disabled once witnesses exist.
-- **Show Dense Environment** is enabled for jobs with a dense reconstruction.
+- **Run Review Witnesses** and **Add Dense Environment** run only that stage on the worker, reusing the job's solved camera, and merge the result into the existing collection. They need the original worker job record (not a saved bundle). Dense needs a job solved with node pack 0.4.1 or later.
+- **Show / Hide Dense Environment** toggles the dense geometry. Show switches to Material Preview and frames it; Hide returns to Solid shading and the camera view.
 - **Export to Nuke…** writes a Nuke script and its data to a chosen folder and reports any warnings.
 - **Scene alignment** moves only the job's alignment parent, so the camera and points stay consistent. Select markers in Object Mode, or vertices (for example native cloud points) in Edit Mode. **Set Floor** fits a plane through 3+ points and makes it Z = 0 with its centroid at the origin and the camera above. **Set Origin** moves the centroid of the selection to the origin. **Set Scale** scales about the origin so two points are the entered distance apart. **Set X Axis** rotates about Z so the direction from the other point to the active point is +X. **Reset Alignment** restores the imported transform. All are undoable.
 

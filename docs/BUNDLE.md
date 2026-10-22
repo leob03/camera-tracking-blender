@@ -11,7 +11,8 @@ All binary files are listed in the manifest with SHA256 and byte length. The man
 Additions in node pack 0.4.0 (bundle versions unchanged):
 
 - `camera.model = "PINHOLE_UNDISTORTED"` with `camera.lens_distortion = {model: "mei", fx, fy, cx, cy, xi, undistorted_focal_px, width, height}` when distortion is estimated. Camera arrays are then the pinhole camera of the **undistorted** plate (`f = fx / (1 + xi)`). Older importers reject such bundles instead of silently ignoring the lens. MEI projection: `u = fx·X/(Z + xi·|P|) + cx`.
-- `review_of` names the parent job of a review-only bundle; its camera arrays are copies of the parent's.
+- `review_of` names the parent job of an extension bundle (review witnesses and/or dense geometry added later); its camera arrays are copies of the parent's.
+- `camera_reused_from` (node pack 0.4.1) names the job whose identical camera solve was reused; camera arrays are identical, the cloud is resampled for this job's point limit.
 - `source.kind = "image_sequence"`, `first_frame`, `colorspace`, `pattern`, `upload_width/upload_height` for proxy uploads of image sequences. `source.sha256` is the uploaded archive's checksum.
 - Dense views carry `environment.mode` (`fast` or `video`). Fast views use the exported camera intrinsics for unprojection.
 

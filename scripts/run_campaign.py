@@ -1,6 +1,6 @@
 """Run a sequential A/B plan against one worker and write a JSON + Markdown report.
 
-Plan: JSON list of {"name", "video", "settings": {...}} or {"name", "review_of": "<earlier name>"}.
+Plan: JSON list of {"name", "video", "settings": {...}} or {"name", "review_of": "<earlier name>", "extend": {...}}.
 Jobs run strictly one after another. Requires NumPy (use the worker-side Comfy Python).
 """
 import argparse
@@ -76,7 +76,7 @@ if __name__ == '__main__':
         entry = {'name': step['name']}
         try:
             review_of = jobs[step['review_of']]['job_id'] if step.get('review_of') else None
-            record = run_job(client, step.get('video'), args.output / 'jobs', None if review_of else {**DEFAULTS, **step.get('settings', {})}, review_of, live_log=False)
+            record = run_job(client, step.get('video'), args.output / 'jobs', None if review_of else {**DEFAULTS, **step.get('settings', {})}, review_of, live_log=False, extend=step.get('extend'))
             entry.update({k: record.get(k) for k in ('job_id', 'state', 'elapsed_seconds', 'upload_reused', 'upload_seconds', 'result', 'stages')})
             entry['metrics'] = metrics(record['result'])
             jobs[step['name']] = record
