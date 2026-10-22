@@ -359,6 +359,8 @@ def _collect_landmarks(
     audit_config: AuditConfig,
 ) -> list[dict[str, Any]]:
     camera_by_frame = camera.by_frame()
+    # Identical matrices, computed once per frame instead of once per query and frame.
+    projection_by_frame = {frame: _projection(*value) for frame, value in camera_by_frame.items()}
     maximum_error_native_px = (
         audit_config.maximum_landmark_observation_error_evaluation_px
         * native_pixels_per_evaluation_pixel
@@ -390,10 +392,7 @@ def _collect_landmarks(
                 continue
             global_frames = np.asarray([start + int(value) for value in local_frames], dtype=np.int32)
             observations = tracks[local_frames, query_index]
-            projections = [
-                _projection(*camera_by_frame[int(frame)])
-                for frame in global_frames
-            ]
+            projections = [projection_by_frame[int(frame)] for frame in global_frames]
             poses = [camera_by_frame[int(frame)][0] for frame in global_frames]
 
             # Fit on a deterministic subset and keep disjoint validation

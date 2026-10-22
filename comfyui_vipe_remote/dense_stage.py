@@ -14,7 +14,8 @@ def capture_masks(pipeline, work):
     """Record exactly the masks consumed by SLAM, with one open archive."""
     import torch
     from vipe.streams.base import ProcessedVideoStream, StreamProcessor
-    archive = zipfile.ZipFile(work / 'solve_masks.zip', 'w', zipfile.ZIP_DEFLATED)
+    # Captured for every solve, so keep it cheap: bit-packed masks, fast compression.
+    archive = zipfile.ZipFile(work / 'solve_masks.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=1)
     seen = set()
     class RecordMasks(StreamProcessor):
         def __call__(self, index, frame):
@@ -23,13 +24,23 @@ def capture_masks(pipeline, work):
                 sky = frame.sky_mask
                 excluded = frame.instance != 0 if frame.instance is not None else ~valid
                 payload = io.BytesIO()
-                np.savez_compressed(payload, valid=valid.cpu().numpy(), sky=sky.cpu().numpy(), excluded=excluded.cpu().numpy())
+                np.savez(payload, shape=np.array(valid.shape), valid=np.packbits(valid.cpu().numpy()), sky=np.packbits(sky.cpu().numpy()), excluded=np.packbits(excluded.cpu().numpy()))
                 archive.writestr(f'{index:06d}.npz', payload.getvalue())
                 seen.add(index)
             return frame
     original = pipeline._add_init_processors
     pipeline._add_init_processors = lambda stream: ProcessedVideoStream(original(stream), [RecordMasks()])
     return archive
+
+
+def read_masks(raw):
+    """Read one frame's masks (bit-packed since node pack 0.4.1, plain boolean before)."""
+    with np.load(io.BytesIO(raw), allow_pickle=False) as data:
+        if 'shape' not in data.files:
+            return data['valid'], data['sky'], data['excluded']
+        shape = tuple(data['shape'])
+        size = int(np.prod(shape))
+        return tuple(np.unpackbits(data[key])[:size].reshape(shape).astype(bool) for key in ('valid', 'sky', 'excluded'))
 
 
 def surface_arrays(depth, rgb, excluded, intrinsics, pose, stride):
@@ -59,6 +70,42 @@ def surface_arrays(depth, rgb, excluded, intrinsics, pose, stride):
                 pixels=pixels, depths=z[valid].astype(np.float32))
 
 
+class SampledViewDepth:
+    """Per-view depth for sampled frames, following AdaptiveDepthProcessor without the video model."""
+    def __init__(self, slam):
+        from vipe.priors.depth.priorda import PriorDAModel
+        self.slam = slam
+        self.prompt_model = PriorDAModel()
+        self.metric_model = None
+        self.min_uv = None
+
+    def uv_score(self, depth, patch_count=10):
+        h, w = depth.size(0)//patch_count, depth.size(1)//patch_count
+        crop = (depth > 0)[:h*patch_count, :w*patch_count].reshape(patch_count, h, patch_count, w)
+        return crop.any(dim=(1, 3)).float().mean().item()
+
+    def project(self, index, frame):
+        return self.slam.slam_map.project_map(index, 0, frame.size(), frame.intrinsics, self.slam.get_view_trajectory(0)[index], frame.camera_type, infill=False)
+
+    def __call__(self, index, frame):
+        from vipe.priors.depth import DepthEstimationInput, make_depth_model
+        frame = frame.cuda()
+        if self.min_uv is None:
+            # Same map-coverage rule as the stock processor: every tenth solved frame.
+            self.min_uv = min(self.uv_score(self.project(i, frame)) for i in range(0, self.slam.trajectory.shape[0], 10))
+            print(f'[ViPE dense] Minimum UV score {self.min_uv:.3f}; using {"metric depth" if self.min_uv < 0.3 else "SLAM-prompted PriorDA"}', flush=True)
+        if self.min_uv < 0.3:
+            if self.metric_model is None:
+                self.metric_model = make_depth_model('unidepth-l')
+            frame.metric_depth = self.metric_model.estimate(DepthEstimationInput(rgb=frame.rgb.float().cuda(), intrinsics=frame.intrinsics, camera_type=frame.camera_type)).metric_depth
+        else:
+            prompt = self.project(index, frame)
+            if frame.mask is not None:
+                prompt = prompt * frame.mask.float()
+            frame.metric_depth = self.prompt_model.estimate(DepthEstimationInput(rgb=frame.rgb.float().cuda(), prompt_metric_depth=prompt)).metric_depth
+        return frame
+
+
 def run(request_path, config_path):
     import torch
     from PIL import Image
@@ -86,6 +133,8 @@ def run(request_path, config_path):
     slam_map = SLAMMap(**{k:payload[k].cuda() for k in ['dense_disp_xyz','dense_disp_rgb','dense_disp_packinfo']},dense_disp_frame_inds=payload['dense_disp_frame_inds'])
     slam = SLAMOutput(trajectory=SE3(vectors), intrinsics=intrinsic[None], rig=SE3(torch.tensor([[0,0,0,0,0,0,1]],device='cuda',dtype=torch.float32)),slam_map=slam_map)
     count = manifest['selection']['count']
+    with np.load(output/'camera.npz',allow_pickle=False) as data:
+        exported = data['intrinsics']
     sampled = set(np.linspace(0,count-1,min(count,12),dtype=int).tolist())
     env_dir = output/'environment'
     env_dir.mkdir(exist_ok=True)
@@ -96,10 +145,10 @@ def run(request_path, config_path):
                 frame.pose = slam.get_view_trajectory(0)[index]
                 frame.intrinsics = intrinsic.clone()
                 frame.camera_type = CameraType.PINHOLE
-                with np.load(io.BytesIO(masks.read(f'{index:06d}.npz')),allow_pickle=False) as data:
-                    frame.mask = torch.from_numpy(data['valid']).to(frame.device)
-                    sky = torch.from_numpy(data['sky']).to(frame.device)
-                    excluded = torch.from_numpy(data['excluded']).to(frame.device)
+                valid, sky, excluded = read_masks(masks.read(f'{index:06d}.npz'))
+                frame.mask = torch.from_numpy(valid).to(frame.device)
+                sky = torch.from_numpy(sky).to(frame.device)
+                excluded = torch.from_numpy(excluded).to(frame.device)
                 frame.instance = excluded.to(torch.uint8)
                 frame.instance[sky] = 2
                 frame.instance_phrases = {1:'excluded',2:'sky'}
@@ -107,12 +156,24 @@ def run(request_path, config_path):
                 factor=min(1.,1280/max(h,w))
                 if factor<1:frame=frame.resize((max(2,round(h*factor/2)*2),max(2,round(w*factor/2)*2)))
                 return frame
-        stream=ProcessedVideoStream(RawMp4Stream(work/'plate.mp4'),[FrozenInputs(),AdaptiveDepthProcessor(slam)])
-        for index, frame in enumerate(stream):
+        fast = request['settings'].get('dense_mode', 'fast') == 'fast'
+        frames = RawMp4Stream(work/'plate.mp4')
+        if fast:
+            # Only the sampled views are kept, so depth is computed only for them: PriorDA
+            # completes the projected native SLAM map (metric, in the solve's own scale).
+            stream = (FrozenInputs()(index, frame) for index, frame in enumerate(frames) if index in sampled)
+            depth = SampledViewDepth(slam)
+        else:
+            stream = ProcessedVideoStream(frames, [FrozenInputs(), AdaptiveDepthProcessor(slam)])
+        done = 0
+        for position, frame in enumerate(stream):
+            index = sorted(sampled)[position] if fast else position
             if index not in sampled:continue
+            if fast: frame = depth(index, frame)
             h,w=frame.size()
             stride=max(1,round(max(h,w)/342))
-            k=frame.intrinsics.detach().cpu().numpy()[:4]
+            # Unproject with the exported camera (scaled to this view) so geometry matches the import exactly.
+            k=exported[index]*np.array([w/manifest['source']['width'],h/manifest['source']['height']]*2)
             pose=frame.pose.matrix().detach().cpu().numpy()
             rgb=frame.rgb.detach().cpu().numpy()
             arrays=surface_arrays(frame.metric_depth.detach().cpu().numpy(),rgb,frame.instance.detach().cpu().numpy()!=0,k,pose,stride)
@@ -122,11 +183,12 @@ def run(request_path, config_path):
             Image.fromarray(np.rint(np.clip(rgb,0,1)*255).astype(np.uint8)).save(output/image_name)
             for name in [data_name,image_name]:manifest['files'][name]={'sha256':digest(output/name),'bytes':(output/name).stat().st_size}
             views.append(dict(frame_index=index,source_frame_index=int(index+manifest['selection']['first_source_frame']),file=data_name,texture=image_name,width=w,height=h,stride=stride,intrinsics=k.tolist(),c2w=pose.tolist(),point_count=len(arrays['points']),face_count=len(arrays['faces'])))
-            write_status(work,'running',f'Dense reconstruction: sampled frame {index+1}/{count}',90)
+            done += 1
+            write_status(work,'running',f'Dense view {done}/{len(sampled)}',90)
     if digest(output/'camera.npz') != before:raise RuntimeError('Dense reconstruction changed the frozen camera')
     manifest['version']=3
     manifest['processing']['dense_depth_computed']=True
-    manifest['environment']=dict(kind='unmerged_static_depth_surfaces',model='adaptive_unidepth-l_svda',views=views,point_count=sum(v['point_count'] for v in views),camera_unchanged=True,camera_sha256=before,depth_long_edge_limit=1280,filtering='Actual solve TrackAnything exclusions including sky, 5x5 dilation; finite positive depth; 8% depth-edge rejection',elapsed_seconds=time.monotonic()-started)
+    manifest['environment']=dict(kind='unmerged_static_depth_surfaces',model='sampled_priorda_slam_prompt' if fast else 'adaptive_unidepth-l_svda',mode='fast' if fast else 'video',views=views,point_count=sum(v['point_count'] for v in views),camera_unchanged=True,camera_sha256=before,depth_long_edge_limit=1280,filtering='Actual solve TrackAnything exclusions including sky, 5x5 dilation; finite positive depth; 8% depth-edge rejection',elapsed_seconds=time.monotonic()-started)
     (output/'result.json').write_text(json.dumps(manifest,indent=2))
     (work/'DENSE_ENVIRONMENT.json').write_text(json.dumps(manifest['environment'],indent=2))
     print('DENSE_ENVIRONMENT_COMPLETE',manifest['environment']['point_count'],flush=True)

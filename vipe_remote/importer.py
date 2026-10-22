@@ -8,6 +8,7 @@ from mathutils import Matrix, Vector
 import numpy as np
 
 from .bundle import load_bundle
+from .lens_math import polynomial_from_mei, review_errors
 
 
 CAMERA_AXES = Matrix.Diagonal((1.0, -1.0, -1.0, 1.0))
@@ -88,6 +89,22 @@ def _review_viewports():
                 space.overlay.show_extras = True
                 space.overlay.show_relationship_lines = False
                 space.region_3d.view_perspective = 'CAMERA'
+    _frame_timelines()
+
+
+def _frame_timelines():
+    """Fit the Timeline/Dope Sheet (scene range) and Graph Editors to the imported frames."""
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            operator = {'DOPESHEET_EDITOR': 'action', 'GRAPH_EDITOR': 'graph'}.get(area.type)
+            region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+            if operator is None or region is None:
+                continue
+            try:
+                with bpy.context.temp_override(window=window, area=area, region=region):
+                    getattr(bpy.ops, operator).view_all()
+            except RuntimeError:
+                pass  # an editor without content must not stop the import
 
 
 def _child_collection(parent, name, role):
@@ -187,12 +204,98 @@ def _make_original_witnesses(collection, marker_collection, root, camera, audit,
                 bpy.data.meshes.remove(mesh)
 
 
-def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scene_scale=1.0, expected_source_sha256=None):
+def _summary(collection, manifest, camera, cloud, focal_mm, sensor_width, errors=None):
+    stages = manifest.get('processing', {}).get('lens_stages_original_pixels', {})
+    lens = manifest['camera'].get('lens_distortion')
+    witnesses = manifest.get('witnesses')
+    summary = dict(job_id=manifest['job_id'], frames=manifest['selection']['count'], focal_mm=focal_mm,
+        focal_px=float(camera['intrinsics'][0, 0]), sensor_width_mm=sensor_width, points=manifest['cloud']['point_count'],
+        witness_landmarks=witnesses.get('landmark_count') if witnesses else None,
+        reprojection_px_median=float(np.median(errors)) if errors is not None and len(errors) else None,
+        reprojection_px_p90=float(np.percentile(errors, 90)) if errors is not None and len(errors) else None,
+        distortion=json.loads(collection['vipe_distortion']) if lens and collection.get('vipe_distortion') else None,
+        timings=manifest.get('timings_seconds', {}), lens_initial_px=(stages.get('initial') or [None])[0],
+        lens_final_px=(stages.get('post_global_ba') or [None])[0], dense=bool(manifest.get('environment')), has_witnesses=bool(witnesses))
+    collection['vipe_summary'] = json.dumps(summary)
+    return summary
+
+
+def _key_review_errors(cam, start_frame, frames, errors):
+    """Animate per-frame median review error on the camera so it can be graphed against time."""
+    if not len(errors):
+        return
+    order = np.argsort(frames, kind='stable')
+    frames, errors = frames[order], errors[order]
+    unique, starts = np.unique(frames, return_index=True)
+    cam['vipe_reprojection_px'] = 0.0
+    for frame, values in zip(unique, np.split(errors, starts[1:])):
+        cam['vipe_reprojection_px'] = float(np.median(values))
+        cam.keyframe_insert(data_path='["vipe_reprojection_px"]', frame=start_frame + int(frame))
+    _linear_keys(cam)
+
+
+def _merge_review(parent, manifest, camera, cloud, marker_count):
+    """Merge an extension job (review witnesses and/or dense geometry) into the imported parent job."""
+    if parent.get('vipe_source_sha256') != manifest['source']['sha256']:
+        raise ValueError('The extension bundle belongs to a different plate.')
+    previous = json.loads(parent.get('vipe_summary', '{}'))
+    groups = {child.get('vipe_role'): child for child in parent.children}
+    root = next(obj for obj in parent.objects if obj.get('vipe_role') == 'alignment')
+    start_frame = int(parent.get('vipe_start_frame', 1))
+    cam = bpy.data.objects.get(parent.get('vipe_camera', ''))
+    errors = None
+    add_witnesses = cloud.get('audit') is not None and not previous.get('has_witnesses')
+    if add_witnesses:
+        markers, crosses = groups['static_tracks_group'], groups['review_crosses_group']
+        for obj in list(markers.objects) + list(crosses.all_objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        _make_original_witnesses(crosses, markers, root, camera, cloud.get('audit'), manifest, start_frame, marker_count)
+        frames, errors = review_errors(camera, cloud['audit'], manifest['selection']['first_source_frame'])
+        if cam is not None:
+            _key_review_errors(cam, start_frame, frames, errors)
+    add_dense = bool(cloud.get('environment')) and 'dense_environment_group' not in groups
+    if add_dense:
+        from .environment import import_environment
+        dense = import_environment(parent, root, cloud['environment'])
+        for layer in bpy.context.scene.view_layers:
+            layer.layer_collection.children[parent.name].children[dense.name].hide_viewport = True
+    focal_mm = cam.data.lens if cam is not None else 0.0
+    sensor = cam.data.sensor_width if cam is not None else 36.0
+    summary = _summary(parent, manifest, camera, cloud, focal_mm, sensor, errors)
+    # Keep what earlier extensions added; each extension bundle starts from the original solve.
+    if previous.get('has_witnesses') and not add_witnesses:
+        summary.update({key: previous.get(key) for key in ('witness_landmarks', 'reprojection_px_median', 'reprojection_px_p90', 'has_witnesses')})
+    summary.update(job_id=previous.get('job_id', summary['job_id']), dense=bool(previous.get('dense') or summary['dense']), timings={**previous.get('timings', {}), **summary['timings']})
+    parent['vipe_summary'] = json.dumps(summary)
+    report = bpy.data.texts.get(parent.get('vipe_manifest_text', ''))
+    if report is not None:
+        merged = json.loads(report.as_string() or '{}')
+        for key in ('witnesses', 'environment'):
+            if manifest.get(key):
+                merged[key] = manifest[key]
+        merged['files'] = {**merged.get('files', {}), **manifest['files']}
+        merged['timings_seconds'] = {**merged.get('timings_seconds', {}), **manifest.get('timings_seconds', {})}
+        merged['version'] = max(merged.get('version', 1), manifest['version'])
+        report.clear()
+        report.write(json.dumps(merged, indent=2))
+    parent['vipe_review_merged'] = True
+    parent['vipe_review_job_id'] = manifest['job_id']
+    return parent
+
+
+def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scene_scale=1.0, expected_source_sha256=None, sensor_width=36.0, plate_path="", plate_first_frame=None):
     manifest, camera, cloud = load_bundle(path, expected_source_sha256)
     identifier = manifest['job_id']
     for existing in bpy.context.scene.collection.children:
         if existing.get('vipe_job_id') == identifier:
             return existing, False
+    parent = next((c for c in bpy.context.scene.collection.children if manifest.get('review_of') and c.get('vipe_job_id') == manifest['review_of']), None)
+    if parent is not None:
+        if cloud.get('audit') is None and not cloud.get('environment'):
+            raise ValueError('The extension bundle adds neither review witnesses nor dense geometry.')
+        return _merge_review(parent, manifest, camera, cloud, marker_count), False
+    if not math.isfinite(sensor_width) or sensor_width <= 0:
+        raise ValueError("Sensor width must be positive and finite.")
     if not math.isfinite(scene_scale) or scene_scale <= 0:
         raise ValueError("Scene scale must be positive and finite.")
     source = manifest['source']
@@ -225,7 +328,7 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         cam['vipe_role'] = 'camera'
         data.type = 'PERSP'
         data.sensor_fit = 'HORIZONTAL'
-        data.sensor_width = 36.0
+        data.sensor_width = sensor_width
         data.passepartout_alpha = 0.9
         data.clip_start = 0.001
         data.clip_end = 1000000
@@ -239,6 +342,8 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         scene.render.fps = round(fps)
         scene.render.fps_base = round(fps) / fps
         previous_quaternion = None
+        # ViPE solves one lens for the shot; a constant lens must not look like a zoom to exporters.
+        constant_lens = bool(np.allclose(intrinsic, intrinsic[0], rtol=1e-7, atol=1e-9))
         for offset, (pose, k) in enumerate(zip(camera['c2w'], intrinsic)):
             frame = start_frame + offset
             local = Matrix(pose.tolist()) @ CAMERA_AXES
@@ -250,12 +355,15 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
             previous_quaternion = q.copy()
             cam.keyframe_insert(data_path='location', frame=frame)
             cam.keyframe_insert(data_path='rotation_quaternion', frame=frame)
+            if constant_lens and offset:
+                continue
             fx, fy, cx, cy = map(float, k)
-            data.lens = fx / width * 36.0
+            data.lens = fx / width * sensor_width
             data.shift_x = -(cx - width / 2) / width
             data.shift_y = (cy - height / 2) / width * fx / fy
-            for key in ['lens', 'shift_x', 'shift_y']:
-                data.keyframe_insert(data_path=key, frame=frame)
+            if not constant_lens:
+                for key in ['lens', 'shift_x', 'shift_y']:
+                    data.keyframe_insert(data_path=key, frame=frame)
         _linear_keys(cam)
         _linear_keys(data)
         points = cloud['xyz']
@@ -286,12 +394,26 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         if cloud.get('environment'):
             from .environment import import_environment
             dense_collection = import_environment(collection, root, cloud['environment'])
+        lens = manifest['camera'].get('lens_distortion')
+        if lens:
+            k123, fit_px = polynomial_from_mei(lens, width, height)
+            collection['vipe_distortion'] = json.dumps({**lens, 'blender_polynomial_k': k123, 'polynomial_fit_max_px': fit_px})
         if source_path:
             plate = Path(source_path)
             if not plate.is_file():
                 raise FileNotFoundError(f"Source plate is missing: {plate}")
             clip = bpy.data.movieclips.load(str(plate.resolve()), check_existing=False)
             clip.frame_start = start_frame - manifest['selection']['first_source_frame']
+            collection['vipe_plate_path'] = plate_path or str(plate.resolve())
+            tracking = clip.tracking.camera
+            tracking.sensor_width = sensor_width
+            tracking.focal_length = float(intrinsic[0, 0]) / width * sensor_width
+            if lens:
+                # The movie stays distorted; the clip's lens model undistorts it behind the pinhole camera.
+                tracking.distortion_model = 'POLYNOMIAL'
+                tracking.k1, tracking.k2, tracking.k3 = k123
+                if hasattr(tracking, 'principal_point_pixels'):
+                    tracking.principal_point_pixels = (lens['cx'], height - lens['cy'])
             data.show_background_images = True
             background = data.background_images.new()
             background.source = 'MOVIE_CLIP'
@@ -299,6 +421,17 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
             background.alpha = 1.0
             background.frame_method = 'STRETCH'
             background.display_depth = 'BACK'
+            if lens:
+                background.clip_user.use_render_undistorted = True
+        errors = None
+        if cloud.get('audit') is not None:
+            frames, errors = review_errors(camera, cloud['audit'], manifest['selection']['first_source_frame'])
+            _key_review_errors(cam, start_frame, frames, errors)
+        _summary(collection, manifest, camera, cloud, data.lens, sensor_width, errors)
+        if plate_path and not source_path:
+            collection['vipe_plate_path'] = plate_path
+        if plate_first_frame is not None or source.get('first_frame') is not None:
+            collection['vipe_plate_first_frame'] = int(plate_first_frame if plate_first_frame is not None else source['first_frame'])
         report = bpy.data.texts.new(f"ViPE {label} {identifier[:8]} result")
         report.write(json.dumps(manifest, indent=2))
         collection['vipe_manifest_text'] = report.name

@@ -24,10 +24,12 @@ A future adapter can replace `Client` operations with the shared bridge while pr
 | Cancel one job | `POST /api/jobs/{id}/cancel` (fork-specific) |
 | Bounded log | `GET /vipe/jobs/{id}/log` |
 | Bundle download | `GET /view?filename=result.zip&subfolder=vipe/{id}&type=output` |
+| Find uploaded plate | `GET /vipe/uploads/{sha256}?suffix=.mp4` (404 if absent) |
+| Extend existing job | `POST /prompt` with `ViPEReviewJob` (`parent_job_id`, `request_id`, optional `review_witnesses`, `dense_environment`, `dense_mode`) |
 
 Upload returns a worker-relative video path, SHA256 and byte count. Submit includes that identity, source basename, UUID and settings. The source SHA256 is verified before inference and before using a selected local movie as the camera background. Output descriptors include a bundle SHA256. Neither artist filesystem paths nor server executable paths are accepted as uploaded job settings.
 
-The node inputs are `frame_start`, `frame_end`, `max_dimension`, `masking`, `mask_phrases`, `lens_mode`, `focal_mm`, `sensor_mm`, `max_points`, plus optional `review_witnesses=true` and `dense_environment=false`. Import-only settings (timeline start, marker count, scene scale) stay in Blender. The workflow's browser node wraps the same API node.
+The node inputs are `frame_start`, `frame_end`, `max_dimension`, `masking`, `mask_phrases`, `lens_mode`, `focal_mm`, `sensor_mm`, `max_points`, plus optional `review_witnesses=false`, `dense_environment=false`, `dense_mode="fast"`, `lens_distortion=false`, `plate_width=0`, `plate_height=0`. Capabilities list the accepted names in `optional_inputs`; clients must not send unknown inputs to older workers. Import-only settings (timeline start, marker count, scene scale) stay in Blender. The workflow's browser node wraps the same API node.
 
 A saved receipt contains job ID, server, local source/download paths, settings and import preferences. Bearer tokens are not persisted in receipts. Treat source paths and logs as internal production data; the public repository contains neither.
 

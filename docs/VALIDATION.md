@@ -49,3 +49,44 @@ Six CPU tests cover incremental appends, split UTF-8 characters, missing logs, t
 Run `python tests/test_job_logs.py` and `blender -b --factory-startup --python-exit-code 1 --python tests/blender_live_logs.py`.
 
 The CoTracker wrapper now reports decoding, mask generation, model loading and each tracking window. An AST comparison confirms that removing these print statements restores the previous wrapper exactly; no tracking calculations or selection thresholds changed.
+
+## Add-on 0.5.0 / node pack 0.4.0 (2026-10-19, Quadro RTX 5000 workstation)
+
+Measured on the local worker, one job at a time. The full A/B campaign report (pinhole vs. experimental distortion on three shots, with held-out review residuals) is written to `artifacts/ab-2026-10-19/full/REPORT.md` on the development workstation.
+
+| Check | Before | After |
+| --- | ---: | ---: |
+| `desert_cars` (1059 frames, 1280 px) dense stage | 585.7 s (video depth for every frame, 12 kept) | 29.0 s (12 sampled views), 412,185 points |
+| `desert_cars` camera + dense worker wall | 962 s | 391 s |
+| Resubmitting an existing plate | full upload | local hash + 1 request (`Plate already on worker`) |
+| Review witnesses added to a finished 48-frame job (cached evidence) | full resubmission | 15 s review-only job, merged into the existing scene |
+| Synthetic ACEScg EXR sequence (48 frames, 2048×1080) | not supported | 7.9 MB proxy upload, camera in plate pixels, timeline 1001 |
+
+Short-clip distortion smoke test (`skateboard_alley` frames 1–48, 640 px): MEI solved `xi = 0.63` with a 25% shorter centre focal than the pinhole solve, while held-out review residuals were not better (3.25 vs 3.16 px median). On short, small-motion clips focal length and distortion are not separable; keep the option experimental and judge it on full shots.
+
+Full-shot A/B (1280 px, held-out review residuals in plate pixels, same independent CoTracker evidence for both solves of a plate):
+
+| Shot | Frames | Pinhole median / p90 | Distortion median / p90 | Solved xi | Camera solve time |
+| --- | ---: | --- | --- | ---: | --- |
+| skateboard_alley | 318 | 2.168 / 4.552 | 2.159 / 4.528 | 0.644 (centre focal 2690 vs 3703 px) | 121 → 155 s |
+| skateboard | 262 | 1.207 / 2.791 | 1.189 / 2.782 | 0.119 | 125 → 163 s |
+| desert_cars | 1059 | 0.287 / 0.559 | 0.288 / 0.562 | −0.018 | 343 → 376 s |
+
+No shot improved by more than 1.5%. On `skateboard_alley` the distortion solve fits the evidence equally well with a 27% shorter focal length, so focal length and distortion are not separable from this footage even over the full shot. The option stays experimental and off by default; a future refinement should constrain distortion (lens grid, prior, or long-track bundle adjustment) rather than trust this one-parameter estimate. Review witnesses with cached evidence took 25–36 s on the 262–318-frame shots and 121 s on the 1059-frame shot.
+
+Tests (Blender 4.2.3 LTS and 4.4.0, background, isolated user folders): `blender_ui_register.py`, `blender_scene_tools.py`, `blender_live_logs.py`, `blender_nuke_export.py`, `blender_import_features.py` (real 0.4.0 bundles: filmback/constant lens/square pixels, review merge, distortion import, image-sequence import), `blender_plate_proxy.py`; CPU: `test_lens_math.py`, `test_job_logs.py`, `test_exr_writer.py`. Nuke itself was not available: the `.nk` syntax, STMap input order, BakedPointCloud serialization and `win_translate` units remain to be confirmed in Nuke (see NUKE.md).
+
+## Add-on 0.5.1 / node pack 0.4.1: solve reuse and job extensions (2026-10-22)
+
+`skateboard_alley` frames 1–48 at 640 px, then the 96-frame synthetic EXR proxy, one job at a time on the same worker:
+
+| Job | Worker wall | What ran |
+| --- | ---: | --- |
+| Fresh camera solve | 37.2 s | camera solve |
+| Same plate and settings, dense on | 23.9 s | solve reused (0.2 s), dense only |
+| Add Dense Environment to the first job | 26.9 s | dense only, merged into the existing collection |
+| Run Review Witnesses on the first job | 12.9 s | witnesses only (cached evidence) |
+| Same plate, point limit 5,000 | 0.1 s | solve reused, cloud resampled to exactly 5,000 points |
+| EXR proxy resubmitted | — | upload and solve reused (identical archive bytes) |
+
+Blender 4.2.3 and 4.4.0: `blender_extension_merge.py` (review then dense merged into one job; witnesses kept, dense hidden, summary and manifest combined, Show/Hide toggle), `blender_ui_register.py` (Add Dense flow, toggle labels), `blender_plate_proxy.py` (byte-identical rebuild, cache hit on resubmit), plus the earlier suite; 0.4.0 bundles still import.

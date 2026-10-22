@@ -19,6 +19,17 @@ from camera_evidence.evaluate import EvaluationConfig, _load_windows
 from camera_evidence.audit import AuditConfig, _collect_landmarks, _write_landmark_npz
 
 
+def undistort_pixels(xy, lens):
+    """Map distorted plate pixels (unified/MEI model) to the exported pinhole camera."""
+    mx, my = (xy[..., 0] - lens['cx']) / lens['fx'], (xy[..., 1] - lens['cy']) / lens['fy']
+    r2 = mx * mx + my * my
+    xi = lens['xi']
+    factor = (xi + np.sqrt(np.maximum(1 + (1 - xi * xi) * r2, 0))) / (1 + r2)
+    z = np.maximum(factor - xi, 1e-9)
+    f = lens['undistorted_focal_px']
+    return np.stack((f * mx * factor / z + lens['cx'], f * my * factor / z + lens['cy']), axis=-1)
+
+
 def run(request_path, config_path):
     started = time.monotonic()
     request = json.loads(request_path.read_text())
@@ -57,24 +68,39 @@ def run(request_path, config_path):
         or evidence['tracker']['checkpoint_sha256'] != COTRACKER_SCALED_OFFLINE_SHA256
         or evidence['semantic_static_mask']['checkpoint_sha256'] != DEEPLABV3_MOBILENET_V3_LARGE_SHA256):
         raise ValueError('Cached evidence does not match the original independent tracking recipe')
-    for key, expected in [('native_width', manifest['source']['width']), ('native_height', manifest['source']['height']), ('frame_count', manifest['source']['frame_count'])]:
+    upload_w = manifest['source'].get('upload_width', manifest['source']['width'])
+    upload_h = manifest['source'].get('upload_height', manifest['source']['height'])
+    for key, expected in [('native_width', upload_w), ('native_height', upload_h), ('frame_count', manifest['source']['frame_count'])]:
         if evidence['source'][key] != expected:
             raise ValueError('Independent evidence dimensions or source frame count differ')
+    # Tracks are in uploaded-video pixels; the camera is in plate pixels.
+    ux, uy = manifest['source']['width'] / upload_w, manifest['source']['height'] / upload_h
+    lens = manifest['camera'].get('lens_distortion')
     # Keep the source-frame indices for trimmed solves. The full-source evidence
     # cache is camera-free and reusable across different selections and solves.
     with np.load(camera_path, allow_pickle=False) as arrays:
         camera = CameraSequence(candidate_id=request['job_id'],
             frame_indices=arrays['source_frame_indices'], c2w=arrays['c2w'],
-            intrinsics=arrays['intrinsics'], plate_width=manifest['source']['width'],
-            plate_height=manifest['source']['height'], adapter_metadata={'type':'frozen_comfy_bundle'})
+            intrinsics=arrays['intrinsics'] / np.array([ux, uy, ux, uy]), plate_width=upload_w,
+            plate_height=upload_h, adapter_metadata={'type':'frozen_comfy_bundle'})
     write_status(work, 'running', 'Triangulating independent tracks through the frozen camera', 85)
     _, windows = _load_windows(cache, 'routing')
+    if lens:
+        scale = np.array([ux, uy])
+        for window in windows:
+            for key in ('tracks_xy_native', 'query_xy_native'):
+                window[key] = undistort_pixels(window[key] * scale, lens) / scale
     evaluation_config, audit_config = EvaluationConfig(), AuditConfig()
     landmarks = _collect_landmarks(camera=camera, windows=windows,
         native_pixels_per_evaluation_pixel=max(evidence['source']['evaluation_to_native_scale_x'], evidence['source']['evaluation_to_native_scale_y']),
         evaluation_config=evaluation_config, audit_config=audit_config)
     destination = output / 'audit_landmarks.npz'
     _write_landmark_npz(destination, landmarks)
+    if (ux, uy) != (1, 1):
+        with np.load(destination, allow_pickle=False) as data:
+            arrays = {key: data[key] for key in data.files}
+        arrays['observed_xy'] = (arrays['observed_xy'] * np.array([ux, uy])).astype(np.float32)
+        np.savez_compressed(destination, **arrays)
     if digest(camera_path) != frozen_digest:
         raise RuntimeError('Independent review unexpectedly changed the solved camera')
     receipt = {'method':'study_schema_8_cotracker_triangulated_landmarks',
@@ -82,6 +108,7 @@ def run(request_path, config_path):
         'evidence_reused':reused, 'evidence_source_sha256':request['source_sha256'],
         'evidence_manifest_sha256':digest(cache/'MANIFEST.json'),
         'evidence_frame_scope':'full original source; triangulation uses selected camera frames',
+        'observations':'undistorted to the exported pinhole camera' if lens else 'plate pixels',
         'evidence_recipe':asdict(recipe), 'tracker':evidence['tracker'],
         'semantic_mask':evidence['semantic_static_mask'],
         'evaluation_config':asdict(evaluation_config), 'audit_config':asdict(audit_config),
@@ -91,7 +118,7 @@ def run(request_path, config_path):
         'near_depth_quantile':.15, 'target_review_extent_px':80.0,
         'review_resolution':[1280, round(1280*manifest['source']['height']/manifest['source']['width'])],
         'quality_status':'human_review_required'}
-    manifest['version'] = 2
+    manifest['version'] = max(manifest['version'], 2)
     manifest['witnesses'] = receipt
     manifest['files'][destination.name] = {'sha256':digest(destination),'bytes':destination.stat().st_size}
     (output/'result.json').write_text(json.dumps(manifest,indent=2))

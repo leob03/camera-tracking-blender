@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import math
 import zipfile
 
 import numpy as np
@@ -20,8 +21,13 @@ def load_bundle(path, expected_source_sha256=None):
         manifest = json.loads(archive.read("result.json"))
         if manifest.get("schema") != "vipe-camera-bundle" or manifest.get("version") not in (1, 2, 3):
             raise ValueError("Unsupported camera bundle version.")
-        if manifest["camera"]["convention"] != "opencv_camera_to_world" or manifest["camera"]["model"] != "PINHOLE":
+        if manifest["camera"]["convention"] != "opencv_camera_to_world" or manifest["camera"]["model"] not in ("PINHOLE", "PINHOLE_UNDISTORTED"):
             raise ValueError("This importer requires an OpenCV camera-to-world PINHOLE camera.")
+        if manifest["camera"]["model"] == "PINHOLE_UNDISTORTED":
+            lens = manifest["camera"].get("lens_distortion") or {}
+            values = [lens.get(k) for k in ("fx", "fy", "cx", "cy", "xi", "undistorted_focal_px")]
+            if lens.get("model") != "mei" or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in values) or min(values[0], values[1], values[5]) <= 0 or not -0.5 < lens["xi"] < 2:
+                raise ValueError("Invalid lens distortion description.")
         if expected_source_sha256 and manifest["source"]["sha256"] != expected_source_sha256:
             raise ValueError("This camera was solved from a different video.")
         expected_names = {"result.json", "camera.npz", "cloud.npz"}
