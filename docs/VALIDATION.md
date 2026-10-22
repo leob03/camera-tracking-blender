@@ -90,3 +90,7 @@ Tests (Blender 4.2.3 LTS and 4.4.0, background, isolated user folders): `blender
 | EXR proxy resubmitted | — | upload and solve reused (identical archive bytes) |
 
 Blender 4.2.3 and 4.4.0: `blender_extension_merge.py` (review then dense merged into one job; witnesses kept, dense hidden, summary and manifest combined, Show/Hide toggle), `blender_ui_register.py` (Add Dense flow, toggle labels), `blender_plate_proxy.py` (byte-identical rebuild, cache hit on resubmit), plus the earlier suite; 0.4.0 bundles still import.
+
+## Add-on 0.5.2: plate and markers in Rendered view and renders (2026-10-22)
+
+Blender 4.4.0 GUI screenshots (off-screen GPU display) of an image-sequence job: Solid and Rendered camera views show the proxy plate with the static-track and review crosses; an F12 render shows the plate composited under the markers. Frame mapping verified numerically by rendering through the compositor and matching each frame to its proxy file (sequences starting at 1001 and 0977, first/middle/last frames). `blender_review_render.py` passes on 4.2.3 and 4.4.0 (film, view transform, plate compositor, existing compositor preserved, marker geometry, render toggle).

@@ -9,6 +9,7 @@ import numpy as np
 
 from .bundle import load_bundle
 from .lens_math import polynomial_from_mei, review_errors
+from .review_render import build_marker_geometry, set_markers_in_render, setup_plate_compositor, setup_scene
 
 
 CAMERA_AXES = Matrix.Diagonal((1.0, -1.0, -1.0, 1.0))
@@ -250,6 +251,8 @@ def _merge_review(parent, manifest, camera, cloud, marker_count):
         for obj in list(markers.objects) + list(crosses.all_objects):
             bpy.data.objects.remove(obj, do_unlink=True)
         _make_original_witnesses(crosses, markers, root, camera, cloud.get('audit'), manifest, start_frame, marker_count)
+        build_marker_geometry(markers, root)
+        set_markers_in_render(parent, parent.get('vipe_markers_in_render', True))
         frames, errors = review_errors(camera, cloud['audit'], manifest['selection']['first_source_frame'])
         if cam is not None:
             _key_review_errors(cam, start_frame, frames, errors)
@@ -390,6 +393,7 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
                 marker['vipe_role'] = 'scene_marker'
                 marker['native_point_id'] = int(cloud['ids'][index])
         _make_original_witnesses(cross_collection, marker_collection, root, camera, cloud.get('audit'), manifest, start_frame, marker_count)
+        build_marker_geometry(marker_collection, root)
         dense_collection = None
         if cloud.get('environment'):
             from .environment import import_environment
@@ -423,6 +427,7 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
             background.display_depth = 'BACK'
             if lens:
                 background.clip_user.use_render_undistorted = True
+            collection['vipe_plate_composited'] = setup_plate_compositor(scene, clip, undistort=bool(lens))
         errors = None
         if cloud.get('audit') is not None:
             frames, errors = review_errors(camera, cloud['audit'], manifest['selection']['first_source_frame'])
@@ -438,6 +443,8 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         collection['vipe_camera'] = cam.name
         collection['vipe_start_frame'] = start_frame
         collection['vipe_layout_version'] = 4
+        set_markers_in_render(collection, True)
+        setup_scene(scene)
         scene.camera = cam
         scene.frame_start, scene.frame_end = start_frame, start_frame + count - 1
         scene.frame_set(start_frame)
