@@ -1,5 +1,11 @@
 # Changes
 
+## Blender add-on 0.5.2
+
+- The plate is visible with the markers everywhere: transparent film for Rendered/Material Preview views, and the plate composited under renders (only when the scene has no compositor setup of its own). F12 / Render Animation no longer give a black image.
+- Static tracks get bright, render-visible marker crosses; review crosses render too. **Hide / Show Markers in Renders** toggle in Results.
+- The scene view transform is set to Standard so the plate looks the same in viewport and renders.
+
 ## Blender add-on 0.5.1 / ComfyUI node pack 0.4.1
 
 - Resubmitting reuses the earlier camera solve when the plate and solve settings are unchanged; only newly requested outputs run (for example dense or review witnesses).

@@ -52,7 +52,18 @@ New imports use Solid shading, material colors, the camera view and the original
 4. Native point cloud: hidden by default. Reveal it in the Outliner; Material Preview shows its colors.
 5. Dense environment, if requested: hidden initially for camera playback. Click **Show Dense Environment** to reveal colored depth samples, switch to Material Preview and frame the geometry. Textured per-view surfaces are also included, individually hidden, with packed textures.
 
-The dense view does not change the camera. Return to camera view with Numpad 0; hide the environment and return to Solid for lightweight tracking review. Geometry and witnesses are excluded from final renders by default; enable their render visibility deliberately if needed.
+The dense view does not change the camera. Return to camera view with Numpad 0; hide the environment and return to Solid for lightweight tracking review.
+
+### Seeing the plate with the markers
+
+Camera background images are viewport references only: Rendered shading draws the world over them and renders never include them, which used to give a black render. Imports therefore set up the scene for review:
+
+- **Film → Transparent** is enabled, so the plate stays visible behind geometry in Rendered and Material Preview views.
+- The **compositor** puts the plate (undistorted when a lens model was solved) under the render, so F12 and Render Animation show the plate with the markers. It is only set up when the scene has no compositor setup of its own; an existing setup is left untouched.
+- **Static tracks** get bright yellow crosses that render (the black empties remain for selection and the alignment tools). **Review crosses** render too. **Hide / Show Markers in Renders** in Results removes them from renders, for example before rendering CG for comp; the plate stays composited.
+- The scene view transform is set to **Standard**, so the plate looks the same in the viewport and in renders.
+
+The native cloud and dense geometry stay excluded from renders.
 
 The movie remains an external local file. Dense texture images and cross meshes are stored in the saved Blender scene. Save a `.blend` to preserve the imported result.
 

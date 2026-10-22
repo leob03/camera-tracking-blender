@@ -6,7 +6,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = {
-    'vipe_remote': ['__init__.py', 'addon.py', 'bundle.py', 'client.py', 'job_logs.py', 'importer.py', 'artist_witnesses.py', 'environment.py', 'lens_math.py', 'scene_tools.py', 'nuke_export.py', 'exr_writer.py', 'plate_proxy.py', 'sequence_flow.py', 'assets/axis_shaped_cross.glb'],
+    'vipe_remote': ['__init__.py', 'addon.py', 'bundle.py', 'client.py', 'job_logs.py', 'importer.py', 'artist_witnesses.py', 'environment.py', 'lens_math.py', 'review_render.py', 'scene_tools.py', 'nuke_export.py', 'exr_writer.py', 'plate_proxy.py', 'sequence_flow.py', 'assets/axis_shaped_cross.glb'],
     'comfyui_vipe_remote': ['__init__.py', 'worker.py', 'log_tail.py', 'evidence_stage.py', 'dense_stage.py', 'web/vipe.js', 'camera_evidence/__init__.py', 'camera_evidence/audit.py', 'camera_evidence/evaluate.py', 'camera_evidence/cameras.py', 'camera_evidence/tapir_tracks.py', 'camera_evidence/cotracker_tracks.py', 'camera_evidence/SOURCE_RECEIPT.json'],
 }
 
@@ -15,7 +15,7 @@ def build():
     output.mkdir(exist_ok=True)
     receipt = {}
     for package, names in PACKAGES.items():
-        version = '0.4.1' if package == 'comfyui_vipe_remote' else '0.5.1'
+        version = '0.4.1' if package == 'comfyui_vipe_remote' else '0.5.2'
         destination = output / (package + '-' + version + '.zip')
         with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as archive:
             for name in names:

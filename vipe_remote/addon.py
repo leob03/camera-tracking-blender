@@ -772,6 +772,21 @@ class VIPE_OT_view_environment(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class VIPE_OT_markers_in_render(bpy.types.Operator):
+    bl_idname = 'vipe_remote.markers_in_render'
+    bl_label = 'Markers in Renders'
+    bl_description = 'Show or hide the static-track markers and review crosses in renders (the plate is always composited underneath)'
+    bl_options = {'REGISTER', 'UNDO'}
+    enable: BoolProperty(default=True, options={'SKIP_SAVE'})
+    @classmethod
+    def poll(cls, context):
+        return job_collection(context) is not None
+    def execute(self, context):
+        from .review_render import set_markers_in_render
+        set_markers_in_render(job_collection(context), self.enable)
+        return {'FINISHED'}
+
+
 class VIPE_OT_export_nuke(bpy.types.Operator):
     bl_idname = 'vipe_remote.export_nuke'
     bl_label = 'Export to Nuke'
@@ -1153,6 +1168,9 @@ class VIPE_PT_results(_SubPanel, bpy.types.Panel):
             column.operator('vipe_remote.view_environment', text='Hide Dense Environment' if visible else 'Show Dense Environment', icon='HIDE_ON' if visible else 'MESH_GRID').show = not visible
         else:
             column.operator('vipe_remote.add_dense', icon='MESH_GRID')
+        collection = job_collection(context)
+        shown = bool(collection.get('vipe_markers_in_render', False))
+        column.operator('vipe_remote.markers_in_render', text='Hide Markers in Renders' if shown else 'Show Markers in Renders', icon='RESTRICT_RENDER_ON' if shown else 'RESTRICT_RENDER_OFF').enable = not shown
         column.operator('vipe_remote.export_nuke', text='Export to Nuke…', icon='EXPORT')
         box = layout.box()
         box.label(text='Scene alignment', icon='ORIENTATION_GLOBAL')
@@ -1212,7 +1230,7 @@ def _before_load(_):
     _log_buffers.clear()
 
 
-CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
+CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
 PANELS = [cls for cls in CLASSES if issubclass(cls, bpy.types.Panel)]
 
 
