@@ -153,6 +153,17 @@ class Client:
             raise ValueError(f"Worker rejected the review workflow: {response}")
         return workflow
 
+    def submit_splat(self, parent_job_id, identifier, **settings):
+        identifier = str(uuid.UUID(identifier))
+        if self.capabilities().get('splat_jobs') != 'ViPESplatJob':
+            raise ValueError('This worker has no Gaussian trainer configured. Update the node pack and configure LichtFeld.')
+        inputs = {'parent_job_id': str(uuid.UUID(parent_job_id)), 'request_id': identifier, **settings}
+        workflow = {'1': {'class_type': 'ViPESplatJob', 'inputs': inputs}}
+        response = self.request('POST', '/prompt', {'prompt': workflow, 'prompt_id': identifier, 'client_id': 'blender-vipe-' + identifier})
+        if response.get('prompt_id') != identifier or response.get('node_errors'):
+            raise ValueError(f'Worker rejected the splat workflow: {response}')
+        return workflow
+
     def cancel(self, identifier):
         return self.request("POST", f"/api/jobs/{str(uuid.UUID(identifier))}/cancel", {})
 

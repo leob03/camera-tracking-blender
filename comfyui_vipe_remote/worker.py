@@ -293,6 +293,8 @@ def run(request_path, config_path):
         stages.append(('review_witnesses', Path(__file__).with_name('evidence_stage.py'), []))
     if request['settings'].get('dense_environment', False):
         stages.append(('dense_environment', Path(__file__).with_name('dense_stage.py'), []))
+    if request['settings'].get('train_splat', False):
+        stages.append(('gaussian_splat', Path(__file__).with_name('splat_stage.py'), []))
     for name, script, flags in stages:
         before = time.monotonic()
         subprocess.run([sys.executable, str(script), *flags, *common], check=True)

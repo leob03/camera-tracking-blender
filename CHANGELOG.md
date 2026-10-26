@@ -1,5 +1,12 @@
 # Changes
 
+## Blender add-on 0.6.0 / ComfyUI node pack 0.5.0
+
+- **Train Gaussian Environment** extends a completed dense job using LichtFeld on the worker. Uses frozen ViPE cameras, retained motion masks and filtered dense initialization points; no new camera solve.
+- Configurable iterations, image size, frame sampling and Gaussian limit. Live logs, cancellation and monitoring reuse the existing job controls.
+- Version-4 bundles include the Gaussian PLY, camera and nearby-view previews, mask sheet and dataset report. Blender attaches output paths to the existing scene and opens previews; live Gaussian rendering is not implemented.
+- Added a directly loadable ComfyUI workflow, offline worker setup guide, coordinate and geometry tests, and Blender attachment validation.
+
 ## Blender add-on 0.5.2
 
 - The plate is visible with the markers everywhere: transparent film for Rendered/Material Preview views, and the plate composited under renders (only when the scene has no compositor setup of its own). F12 / Render Animation no longer give a black image.

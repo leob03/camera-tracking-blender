@@ -285,7 +285,7 @@ routes = PromptServer.instance.routes
 @routes.get("/vipe/capabilities")
 async def capabilities(request):
     cfg = config()
-    return web.json_response({"protocol_version": 1, "live_logs": "byte_cursor_v1", "node": "ViPECameraTrack", "max_upload_bytes": cfg.get("max_upload_bytes", 1024**3), "outputs": ["camera", "native_cloud", "scene_markers", "independent_audit_landmarks", "artist_witnesses", "dense_environment"], "job_cancellation": "by_prompt_id", "dense_depth": True, "optional_stages": {"review_witnesses": False, "dense_environment": False}, "optional_inputs": sorted(OPTIONAL_INPUTS), "upload_reuse": "sha256_v1", "review_jobs": "ViPEReviewJob", "extend_jobs": ["review_witnesses", "dense_environment"], "solve_reuse": True, "status_detail": True, "frame_archives": "proxy_frames_v1"})
+    return web.json_response({"protocol_version": 1, "live_logs": "byte_cursor_v1", "node": "ViPECameraTrack", "max_upload_bytes": cfg.get("max_upload_bytes", 1024**3), "outputs": ["camera", "native_cloud", "scene_markers", "independent_audit_landmarks", "artist_witnesses", "dense_environment"], "job_cancellation": "by_prompt_id", "dense_depth": True, "optional_stages": {"review_witnesses": False, "dense_environment": False}, "optional_inputs": sorted(OPTIONAL_INPUTS), "upload_reuse": "sha256_v1", "review_jobs": "ViPEReviewJob", "extend_jobs": ["review_witnesses", "dense_environment"], "splat_jobs": "ViPESplatJob" if cfg.get("lichtfeld_executable") else None, "solve_reuse": True, "status_detail": True, "frame_archives": "proxy_frames_v1"})
 
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm", ".zip"}
@@ -469,3 +469,7 @@ class ViPETrackVideo:
 NODE_CLASS_MAPPINGS.update({"ViPEVideoInput": ViPEVideoInput, "ViPETrackVideo": ViPETrackVideo, "ViPEReviewJob": ViPEReviewJob})
 NODE_DISPLAY_NAME_MAPPINGS.update({"ViPEVideoInput": "ViPE · Upload Video", "ViPETrackVideo": "ViPE · Solve Camera + Native Cloud", "ViPEReviewJob": "ViPE · Add Review or Dense to Job"})
 WEB_DIRECTORY = "./web"
+
+from .splat_job import ViPESplatJob
+NODE_CLASS_MAPPINGS['ViPESplatJob'] = ViPESplatJob
+NODE_DISPLAY_NAME_MAPPINGS['ViPESplatJob'] = 'ViPE · Train Gaussian Environment'

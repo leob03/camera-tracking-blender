@@ -19,7 +19,7 @@ def load_bundle(path, expected_source_sha256=None):
         if archive.getinfo("result.json").file_size > 1024**2:
             raise ValueError("Camera manifest is too large.")
         manifest = json.loads(archive.read("result.json"))
-        if manifest.get("schema") != "vipe-camera-bundle" or manifest.get("version") not in (1, 2, 3):
+        if manifest.get("schema") != "vipe-camera-bundle" or manifest.get("version") not in (1, 2, 3, 4):
             raise ValueError("Unsupported camera bundle version.")
         if manifest["camera"]["convention"] != "opencv_camera_to_world" or manifest["camera"]["model"] not in ("PINHOLE", "PINHOLE_UNDISTORTED"):
             raise ValueError("This importer requires an OpenCV camera-to-world PINHOLE camera.")
@@ -34,7 +34,7 @@ def load_bundle(path, expected_source_sha256=None):
         if manifest['version'] == 2 or manifest.get('witnesses'):
             expected_names.add('audit_landmarks.npz')
         views = manifest.get('environment', {}).get('views', [])
-        if manifest['version'] == 3:
+        if manifest['version'] in (3, 4):
             if not 1 <= len(views) <= 12:
                 raise ValueError('Dense environment must contain one to twelve views.')
             used_frames = set()
@@ -50,6 +50,22 @@ def load_bundle(path, expected_source_sha256=None):
                 expected_names.update((view['file'], view['texture']))
         elif views:
             raise ValueError('Dense environment requires bundle version 3.')
+        splat_files = set()
+        if manifest['version'] == 4:
+            from .splat import SPLAT_FILES
+            splat = manifest.get('splat', {})
+            if (splat.get('schema') != 'vipe-gaussian-splat' or splat.get('version') != 1
+                or splat.get('file') != 'splat/scene.ply'
+                or splat.get('previews') != ['splat/camera_preview.mp4', 'splat/nearby_preview.mp4']
+                or splat.get('mask_preview') != 'splat/masks_preview.jpg'
+                or splat.get('dataset_report') != 'splat/dataset.json'
+                or splat.get('camera_unchanged') is not True
+                or splat.get('camera_sha256') != manifest['files']['camera.npz']['sha256']):
+                raise ValueError('Invalid Gaussian splat manifest.')
+            splat_files = SPLAT_FILES
+            expected_names.update(splat_files)
+        elif manifest.get('splat'):
+            raise ValueError('Gaussian outputs require bundle version 4.')
         if set(manifest['files']) != expected_names - {'result.json'}:
             raise ValueError('Manifest file list does not match the declared outputs.')
         if names != expected_names:
@@ -57,6 +73,15 @@ def load_bundle(path, expected_source_sha256=None):
         arrays = {}
         expanded_bytes = 0
         for filename in sorted(expected_names - {"result.json"}):
+            if filename in splat_files:
+                entry = manifest['files'][filename]
+                h = hashlib.sha256(); size = 0
+                with archive.open(filename) as member:
+                    for chunk in iter(lambda: member.read(1024 * 1024), b''):
+                        h.update(chunk); size += len(chunk)
+                if size != entry['bytes'] or h.hexdigest() != entry['sha256']:
+                    raise ValueError('Corrupt splat member: ' + filename)
+                continue
             raw = archive.read(filename)
             entry = manifest["files"][filename]
             if len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]:

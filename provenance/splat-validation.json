@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-26",
+  "addon_version": "0.6.0",
+  "node_pack_version": "0.5.0",
+  "blender": "4.4.0",
+  "trainer": {
+    "name": "LichtFeld Studio",
+    "source_commit": "c72a0d8554a33371ccd97df1e9fbe480d0981fdd",
+    "gpu": "Quadro RTX 5000 16 GiB",
+    "strategy": "mrnf"
+  },
+  "experiment": {
+    "shot": "skateboard_alley",
+    "source_frames": 318,
+    "dense_views": 12,
+    "dataset_images": 106,
+    "fit_images": 92,
+    "photometric_holdout_images": 14,
+    "width": 1536,
+    "height": 810,
+    "depth_points": 493722,
+    "consistent_points": 446044,
+    "initial_gaussians": 150000,
+    "final_gaussians": 1000000,
+    "iterations": 15000,
+    "trainer_runtime_seconds": 264.0,
+    "bundle_bytes": 228752046,
+    "camera_sha256": "77f0179d82a244d105080284f11a4f5e3060e20dfb92c71475f86a504d981290",
+    "camera_reused": true,
+    "dense_reused": true
+  },
+  "checks": {
+    "unit_tests": 19,
+    "blender_ui_registration": "PASS",
+    "api_submit_train_render_download": "PASS",
+    "api_smoke_iterations": 100,
+    "api_smoke_seconds": 12.73,
+    "cancel_worker_and_trainer": "PASS",
+    "blender_import_camera_preserved": "PASS",
+    "blender_real_operator_submission": "PASS",
+    "blender_download_attachment": "PASS"
+  },
+  "limitations": [
+    "Full-quality experiment ran directly through the headless trainer; short API jobs tested integration.",
+    "Photometric holdout only: camera and depth estimation used the full shot.",
+    "Floor smears and late wall distortions remain; first result preserved for human review.",
+    "No matched COLMAP comparison or score-driven tuning.",
+    "Blender opens rendered previews and stores the Gaussian asset path; no live Gaussian renderer."
+  ]
+}

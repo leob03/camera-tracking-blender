@@ -2,19 +2,21 @@
 
 Select a plate in Blender (a movie or an EXR/DPX/TIFF image sequence), submit it to a ComfyUI GPU worker, and import the solved camera, native point cloud and 3D markers. Export the result to Nuke. The artist machine does not need CUDA or model dependencies; image sequences are tone-mapped to a small proxy locally before upload.
 
-The prototype runs the reviewed ViPE camera pipeline. Two extra outputs are selectable:
+The prototype runs the reviewed ViPE camera pipeline. Extra outputs are selectable:
 
 | Output | Default | Purpose |
 | --- | --- | --- |
 | Camera + native post-BA map | Always | Solved camera, source movie background and native reconstruction points |
 | Independent review witnesses | Off (also on demand after the solve) | CoTracker observations triangulated through the frozen camera, held-out reprojection error, and the original artist cross assets |
 | Dense environment reconstruction | Off | Depth for 12 sampled views (fast mode) accumulated into colored samples and textured per-view surfaces |
+| Gaussian environment | Off; on demand after dense | LichtFeld training from fixed cameras, masks and filtered dense points; Gaussian PLY and previews |
 | Lens distortion (experimental) | Off | Unified (MEI) lens refined in bundle adjustment; undistorted pinhole camera plus STMaps for Nuke |
 
-The witness stage assesses the camera; it does not improve the solve. Neither optional stage reruns bundle adjustment. Dense geometry is an accumulation of views, not a watertight or merged model.
+The witness stage assesses the camera; it does not improve the solve. These optional output stages do not rerun bundle adjustment. Dense geometry is an accumulation of views, not a watertight or merged model.
 
 ## Start here
 
+- **Gaussian training:** [Setup, use and first test](docs/GAUSSIAN_SPLATS.md)
 - **Artist:** [Blender installation and use](docs/BLENDER.md)
 - **Compositor:** [Nuke export](docs/NUKE.md)
 - **Worker developer:** [ComfyUI and ViPE setup](docs/WORKER_SETUP.md)
@@ -31,7 +33,7 @@ Build the installable ZIPs with a normal Python 3 interpreter:
 python scripts/build_packages.py
 ```
 
-Install `dist/vipe_remote-0.5.2.zip` in Blender. The separate `dist/comfyui_vipe_remote-0.4.1.zip` belongs on the ComfyUI worker. Open `workflows/ViPE Camera and Native Cloud.json` to test directly in ComfyUI.
+Install `dist/vipe_remote-0.6.0.zip` in Blender. The separate `dist/comfyui_vipe_remote-0.5.0.zip` belongs on the ComfyUI worker. Open `workflows/ViPE Camera and Native Cloud.json` to test directly in ComfyUI.
 
 ## Scope
 

@@ -26,10 +26,10 @@ from .sequence_flow import plate_pattern, prepare_upload
 
 _active = None
 _log_buffers = {}
-JOB_MODES = ('submit', 'resume', 'review')
-STAGES = [('upload', "Upload"), ('queue', "Queue"), ('prepare', "Prepare"), ('solve', "Camera solve"), ('witnesses', "Review witnesses"), ('dense', "Dense"), ('package', "Package"), ('download', "Download"), ('import', "Import")]
+JOB_MODES = ('submit', 'resume', 'review', 'splat')
+STAGES = [('upload', "Upload"), ('queue', "Queue"), ('prepare', "Prepare"), ('solve', "Camera solve"), ('witnesses', "Review witnesses"), ('dense', "Dense"), ('splat', "Gaussian splat"), ('package', "Package"), ('download', "Download"), ('import', "Import")]
 STAGE_ORDER = [key for key, _ in STAGES]
-STAGE_MESSAGES = [('Connecting to worker', 'upload'), ('Preparing plate proxy', 'upload'), ('Checking plate on worker', 'upload'), ('Plate already on worker', 'upload'), ('Uploading video', 'upload'), ('Waiting for worker', 'queue'), ('Starting ViPE worker', 'prepare'), ('Preparing video', 'prepare'), ('Preparing review', 'prepare'), ('Unpacking plate frames', 'prepare'), ('Estimating initial lens', 'solve'), ('Reusing camera solve', 'solve'), ('Tracking camera', 'solve'), ('Saving frozen camera', 'solve'), ('Generating independent CoTracker', 'witnesses'), ('Loading independent CoTracker', 'witnesses'), ('Triangulating independent tracks', 'witnesses'), ('Computing optional dense', 'dense'), ('Dense ', 'dense'), ('Packaging tracking results', 'package'), ('Tracking results ready', 'package'), ('Downloading result', 'download')]
+STAGE_MESSAGES = [('Preparing splat', 'prepare'), ('Training Gaussian', 'splat'), ('Rendering Gaussian', 'splat'), ('Gaussian splat and', 'splat'), ('Connecting to worker', 'upload'), ('Preparing plate proxy', 'upload'), ('Checking plate on worker', 'upload'), ('Plate already on worker', 'upload'), ('Uploading video', 'upload'), ('Waiting for worker', 'queue'), ('Starting ViPE worker', 'prepare'), ('Preparing video', 'prepare'), ('Preparing review', 'prepare'), ('Unpacking plate frames', 'prepare'), ('Estimating initial lens', 'solve'), ('Reusing camera solve', 'solve'), ('Tracking camera', 'solve'), ('Saving frozen camera', 'solve'), ('Generating independent CoTracker', 'witnesses'), ('Loading independent CoTracker', 'witnesses'), ('Triangulating independent tracks', 'witnesses'), ('Computing optional dense', 'dense'), ('Dense ', 'dense'), ('Packaging tracking results', 'package'), ('Tracking results ready', 'package'), ('Downloading result', 'download')]
 # Published horizontal filmback widths (mm) of the recording area.
 SENSOR_PRESETS = [
     ('CUSTOM', "Custom", "Enter the filmback width", 0.0),
@@ -121,6 +121,10 @@ class ViPERemoteProperties(bpy.types.PropertyGroup):
     review_witnesses: BoolProperty(name="Review witnesses", default=False, description="Run CoTracker and place the original review crosses; assesses the frozen camera without improving its solve")
     dense_environment: BoolProperty(name="Dense environment reconstruction", default=False, description="Compute post-SLAM video depth and accumulate static colored surfaces; adds processing time")
     dense_mode: EnumProperty(name="Dense depth", items=[('fast', "Sampled views (fast)", "Depth for the sampled dense views only"), ('video', "Full video depth (slow, original)", "Video depth for the whole selection, as in earlier versions")], default='fast')
+    splat_iterations: IntProperty(name="Training iterations", default=15000, min=100, max=60000)
+    splat_max_dimension: IntProperty(name="Training long edge", default=1536, min=256, max=2048, description="Pixels; larger images need more GPU memory")
+    splat_frame_step: IntProperty(name="Use every Nth frame", default=3, min=1, max=20)
+    splat_max_gaussians: IntProperty(name="Gaussian limit", default=1000000, min=50000, max=1500000)
     masking: BoolProperty(name="Exclude dynamic categories", default=True)
     mask_phrases: StringProperty(name="Categories", default="person,animal,vehicle,ball,balloon,gun,pet,car,bus")
     lens_mode: EnumProperty(name="Lens", items=[('auto', "Estimate and refine", "GeoCalib initialization followed by stock ViPE lens optimization"), ('fixed', "Known focal length (locked)", "Use a supplied focal length with a centered principal point and keep it fixed")], default='auto')
@@ -278,6 +282,20 @@ def _import(props, record):
     manifest, _, _ = load_bundle(props.result_path, record.get('source_sha256'))
     if manifest['job_id'] != record['job_id']:
         raise ValueError("The downloaded bundle belongs to a different job.")
+    if manifest.get('splat'):
+        from .splat import attach_splat
+        scene_id = record.get('scene_job_id') or manifest.get('review_of')
+        collection = next((c for c in bpy.context.scene.collection.children if c.get('vipe_job_id') == scene_id), None)
+        if collection is not None:
+            attach_splat(collection, props.result_path, manifest)
+            parent = dict(record.get('scene_record') or _parent_record(record))
+            parent.update(splat_job_id=record['job_id'], splat_result=props.result_path)
+            _save_record(parent)
+            props.job_id, props.job_record = scene_id, json.dumps(parent)
+            props.result_path = parent.get('result', props.result_path)
+            props.state, props.progress = 'COMPLETE', 1
+            props.status = 'Gaussian splat ready. Open its previews or output folder in Results.'
+            return collection
     background = record.get('background') or record.get('source', '')
     if background and not Path(background).is_file() and record.get('plate'):
         background = ''  # proxy frames were removed: geometry-only import
@@ -359,10 +377,11 @@ def _run_network(mode, record, url, token, events, cancel, detach, log_buffer):
             emit('record', dict(record))
             workflow = client.submit(uploaded, record['plate']['pattern'] if record.get('plate') else Path(record['source']).name, record['settings'], record['job_id'])
             (folder / 'workflow_api.json').write_text(json.dumps(workflow, indent=2), encoding='utf-8')
-        elif mode == 'review':
+        elif mode in ('review', 'splat'):
             (folder / 'job.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
             emit('record', dict(record))
-            workflow = client.submit_review(record['parent_job_id'], record['job_id'], **record.get('extend', {}))
+            submit = client.submit_splat if mode == 'splat' else client.submit_review
+            workflow = submit(record['parent_job_id'], record['job_id'], **record.get('extend', {}))
             emit('connection', True)
             (folder / 'workflow_api.json').write_text(json.dumps(workflow, indent=2), encoding='utf-8')
         item = client.wait(record['job_id'], progress, cancel.is_set, detach.is_set, log=log_output)
@@ -401,6 +420,8 @@ def _stage(message):
 
 
 def _job_stages(record):
+    if record.get('mode') == 'splat':
+        return {'queue', 'prepare', 'splat', 'package', 'download', 'import'}
     if record.get('mode') == 'review':
         return {'queue', 'prepare', 'witnesses', 'package', 'download', 'import'}
     settings = record.get('settings') or {}
@@ -607,6 +628,60 @@ class VIPE_OT_add_dense(bpy.types.Operator):
         return True
     def execute(self, context):
         return _launch_extension(self, context, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': context.scene.vipe_remote.dense_mode}, 'Submitting dense job')
+
+
+class VIPE_OT_train_splat(bpy.types.Operator):
+    bl_idname = 'vipe_remote.train_splat'
+    bl_label = 'Train Gaussian Environment'
+    bl_description = 'Train a static Gaussian splat on the worker using this job’s solved cameras, dense points and motion masks'
+
+    @classmethod
+    def poll(cls, context):
+        props = context.scene.vipe_remote
+        collection = job_collection(context)
+        if _active is not None or not _has_remote_job(props):
+            cls.poll_message_set('Load the completed worker job first.')
+            return False
+        if collection is None or not _summary(collection).get('dense'):
+            cls.poll_message_set('Add Dense Environment first.')
+            return False
+        return not _summary(collection).get('distortion')
+
+    def execute(self, context):
+        props, prefs = context.scene.vipe_remote, preferences(context)
+        collection = job_collection(context)
+        parent = _parent_record(_loads(props.job_record))
+        dense_id = collection.get('vipe_dense_job_id')
+        if not dense_id:
+            # Scenes saved before the splat feature keep the latest extension ID here.
+            dense_id = parent.get('review_job_id') or parent['job_id']
+        identifier = str(uuid.uuid4())
+        record = {**parent, 'job_id': identifier, 'parent_job_id': dense_id,
+                  'scene_job_id': collection['vipe_job_id'], 'scene_record': dict(parent),
+                  'parent_folder': parent.get('folder', ''), 'mode': 'splat',
+                  'folder': str(_cache_dir(prefs) / identifier), 'auto_import': True,
+                  'extend': {key: getattr(props, key) for key in ('splat_iterations', 'splat_max_dimension', 'splat_frame_step', 'splat_max_gaussians')}}
+        record.pop('result', None)
+        props.job_id, props.job_record = identifier, json.dumps(record)
+        props.result_path, props.state, props.status, props.progress = '', 'RUNNING', 'Submitting splat job', 0
+        _launch(context, 'splat', record)
+        return {'FINISHED'}
+
+
+class VIPE_OT_open_splat(bpy.types.Operator):
+    bl_idname = 'vipe_remote.open_splat'
+    bl_label = 'Open Splat Output'
+    kind: EnumProperty(items=[('camera', 'Camera preview', ''), ('nearby', 'Nearby view', ''), ('masks', 'Training masks', ''), ('folder', 'Output folder', '')])
+
+    def execute(self, context):
+        collection = job_collection(context)
+        folder = Path(collection.get('vipe_splat_directory', '')) if collection else None
+        names = {'camera': 'camera_preview.mp4', 'nearby': 'nearby_preview.mp4', 'masks': 'masks_preview.jpg'}
+        path = folder / names[self.kind] if folder and self.kind in names else folder
+        if path is None or not path.exists():
+            self.report({'ERROR'}, 'The downloaded splat output is missing.')
+            return {'CANCELLED'}
+        return bpy.ops.wm.path_open(filepath=str(path))
 
 
 class VIPE_OT_resume(bpy.types.Operator):
@@ -1173,6 +1248,19 @@ class VIPE_PT_results(_SubPanel, bpy.types.Panel):
         column.operator('vipe_remote.markers_in_render', text='Hide Markers in Renders' if shown else 'Show Markers in Renders', icon='RESTRICT_RENDER_ON' if shown else 'RESTRICT_RENDER_OFF').enable = not shown
         column.operator('vipe_remote.export_nuke', text='Export to Nuke…', icon='EXPORT')
         box = layout.box()
+        box.label(text='Gaussian environment (optional)', icon='OUTLINER_DATA_POINTCLOUD')
+        for key in ('splat_iterations', 'splat_max_dimension', 'splat_frame_step', 'splat_max_gaussians'):
+            box.prop(props, key)
+        box.operator('vipe_remote.train_splat', icon='RENDER_STILL')
+        if collection.get('vipe_splat_directory'):
+            row = box.row(align=True)
+            row.operator('vipe_remote.open_splat', text='Camera preview', icon='PLAY').kind = 'camera'
+            row.operator('vipe_remote.open_splat', text='Nearby view', icon='PLAY').kind = 'nearby'
+            row = box.row(align=True)
+            row.operator('vipe_remote.open_splat', text='Masks', icon='IMAGE_DATA').kind = 'masks'
+            row.operator('vipe_remote.open_splat', text='Output folder', icon='FILE_FOLDER').kind = 'folder'
+        _hint(box, 'Static scene only. Add Dense Environment first. The worker returns a Gaussian PLY and rendered previews.', width - 2)
+        box = layout.box()
         box.label(text='Scene alignment', icon='ORIENTATION_GLOBAL')
         grid = box.grid_flow(columns=2, even_columns=True, align=True)
         grid.operator('vipe_remote.set_floor', icon='MESH_PLANE')
@@ -1230,7 +1318,7 @@ def _before_load(_):
     _log_buffers.clear()
 
 
-CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
+CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_train_splat, VIPE_OT_open_splat, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
 PANELS = [cls for cls in CLASSES if issubclass(cls, bpy.types.Panel)]
 
 
