@@ -1326,26 +1326,6 @@ class VIPE_PT_results(_SubPanel, bpy.types.Panel):
         column.operator('vipe_remote.markers_in_render', text='Hide Markers in Renders' if shown else 'Show Markers in Renders', icon='RESTRICT_RENDER_ON' if shown else 'RESTRICT_RENDER_OFF').enable = not shown
         column.operator('vipe_remote.export_nuke', text='Export to Nuke…', icon='EXPORT')
         box = layout.box()
-        box.label(text='Gaussian environment (optional)', icon='OUTLINER_DATA_POINTCLOUD')
-        box.prop(props, 'splat_preset', text='')
-        box.prop(props, 'splat_custom')
-        if props.splat_custom:
-            for key in SPLAT_KEYS:
-                box.prop(props, key)
-        box.operator('vipe_remote.train_splat', icon='RENDER_STILL')
-        if collection.get('vipe_splat_directory'):
-            names = json.loads(collection.get('vipe_splat_objects', '[]'))
-            loaded = [bpy.data.objects.get(name) for name in names if bpy.data.objects.get(name)]
-            visible = bool(loaded) and not loaded[0].hide_viewport
-            box.operator('vipe_remote.view_splat', text='Hide Gaussian Splat' if visible else 'Show Gaussian Splat', icon='HIDE_ON' if visible else 'OUTLINER_OB_POINTCLOUD').show = not visible
-            row = box.row(align=True)
-            row.operator('vipe_remote.open_splat', text='Camera preview', icon='PLAY').kind = 'camera'
-            row.operator('vipe_remote.open_splat', text='Nearby view', icon='PLAY').kind = 'nearby'
-            row = box.row(align=True)
-            row.operator('vipe_remote.open_splat', text='Masks', icon='IMAGE_DATA').kind = 'masks'
-            row.operator('vipe_remote.open_splat', text='Output folder', icon='FILE_FOLDER').kind = 'folder'
-        _hint(box, 'Static scene only; add Dense Environment first. Quick is a preview; Quality takes longer and, for EXR plates, uploads a larger training plate. View the splat with KIRI 3DGS Render (Blender 5.1+) or Blender 5.3+.', width - 2)
-        box = layout.box()
         box.label(text='Scene alignment', icon='ORIENTATION_GLOBAL')
         grid = box.grid_flow(columns=2, even_columns=True, align=True)
         grid.operator('vipe_remote.set_floor', icon='MESH_PLANE')
@@ -1354,6 +1334,36 @@ class VIPE_PT_results(_SubPanel, bpy.types.Panel):
         grid.operator('vipe_remote.set_axis', icon='EMPTY_SINGLE_ARROW')
         box.operator('vipe_remote.reset_alignment', icon='LOOP_BACK')
         _hint(box, 'Select markers, or cloud vertices in Edit Mode. Floor 3+, scale and axis 2 (active point is +X).', width - 2)
+
+
+class VIPE_PT_splat(_SubPanel, bpy.types.Panel):
+    bl_label = 'Gaussian Splat'
+    bl_options = {'DEFAULT_CLOSED'}
+    @classmethod
+    def poll(cls, context):
+        return job_collection(context) is not None
+    def draw(self, context):
+        layout, props = self.layout, context.scene.vipe_remote
+        width = _wrap_width(context)
+        collection = job_collection(context)
+        layout.prop(props, 'splat_preset', text='')
+        layout.prop(props, 'splat_custom')
+        if props.splat_custom:
+            for key in SPLAT_KEYS:
+                layout.prop(props, key)
+        layout.operator('vipe_remote.train_splat', icon='RENDER_STILL')
+        if collection.get('vipe_splat_directory'):
+            names = json.loads(collection.get('vipe_splat_objects', '[]'))
+            loaded = [bpy.data.objects.get(name) for name in names if bpy.data.objects.get(name)]
+            visible = bool(loaded) and not loaded[0].hide_viewport
+            layout.operator('vipe_remote.view_splat', text='Hide Gaussian Splat' if visible else 'Show Gaussian Splat', icon='HIDE_ON' if visible else 'OUTLINER_OB_POINTCLOUD').show = not visible
+            row = layout.row(align=True)
+            row.operator('vipe_remote.open_splat', text='Camera preview', icon='PLAY').kind = 'camera'
+            row.operator('vipe_remote.open_splat', text='Nearby view', icon='PLAY').kind = 'nearby'
+            row = layout.row(align=True)
+            row.operator('vipe_remote.open_splat', text='Masks', icon='IMAGE_DATA').kind = 'masks'
+            row.operator('vipe_remote.open_splat', text='Output folder', icon='FILE_FOLDER').kind = 'folder'
+        _hint(layout, 'Static scene only; add Dense Environment first. Quick is a preview; Quality takes longer and, for EXR plates, uploads a larger training plate. View the splat with the KIRI 3DGS Render add-on, or natively in Blender 5.3+.', width)
 
 
 class VIPE_PT_jobs(_SubPanel, bpy.types.Panel):
@@ -1403,7 +1413,7 @@ def _before_load(_):
     _log_buffers.clear()
 
 
-CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_train_splat, VIPE_OT_view_splat, VIPE_OT_open_splat, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
+CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_train_splat, VIPE_OT_view_splat, VIPE_OT_open_splat, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_splat, VIPE_PT_jobs, VIPE_PT_logs]
 PANELS = [cls for cls in CLASSES if issubclass(cls, bpy.types.Panel)]
 
 

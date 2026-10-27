@@ -6,7 +6,7 @@ Blender add-on **0.6.0** and ComfyUI node pack **0.5.0** add optional Gaussian t
 
 1. Install `dist/vipe_remote-0.6.0.zip` and restart Blender. The worker also needs the updated node pack and configured trainer below.
 2. Solve a shot with **Exclude dynamic categories** enabled. Enable **Dense environment reconstruction**, or use **Results → Add Dense Environment** after solving.
-3. Inspect the camera and dense geometry. In **Results → Gaussian environment**, choose **Quick preview** or **Quality** and click **Train Gaussian Environment**.
+3. Inspect the camera and dense geometry. In the **Gaussian Splat** sub-panel (below Results), choose **Quick preview** or **Quality** and click **Train Gaussian Environment**.
 4. Follow **Open Live Log**, or the terminal used to launch Blender. Cancel and resume monitoring use the existing job controls.
 5. When complete, click **Show Gaussian Splat** to load it under the job's **ViPE alignment**, or open **Camera preview**, **Nearby view**, **Masks** and **Output folder**. The downloaded Gaussian asset is `splat/scene.ply` beside this extension job's `result.zip`.
 
