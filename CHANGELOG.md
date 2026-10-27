@@ -2,10 +2,12 @@
 
 ## Blender add-on 0.6.0 / ComfyUI node pack 0.5.0
 
-- **Train Gaussian Environment** extends a completed dense job using LichtFeld on the worker. Uses frozen ViPE cameras, retained motion masks and filtered dense initialization points; no new camera solve.
-- Configurable iterations, image size, frame sampling and Gaussian limit. Live logs, cancellation and monitoring reuse the existing job controls.
-- Version-4 bundles include the Gaussian PLY, camera and nearby-view previews, mask sheet and dataset report. Blender attaches output paths to the existing scene and opens previews; live Gaussian rendering is not implemented.
-- Added a directly loadable ComfyUI workflow, offline worker setup guide, coordinate and geometry tests, and Blender attachment validation.
+- **Train Gaussian Environment** extends a completed dense job using LichtFeld on the worker. Uses frozen ViPE cameras, retained motion masks and filtered dense initialization points plus the native map; no new camera solve.
+- **Quick preview** and **Quality** presets. Quick: 10k steps, 1536 px, up to 1M Gaussians. Quality: the full 30k schedule, 2048 px, up to 3M Gaussians; image-sequence (EXR) plates upload a 2048 px training plate of the solved frames, since the solve proxy is only 1280 px. Shorter runs scale LichtFeld's whole schedule instead of stopping it early. Every solved frame trains (long shots are subsampled to 400 views); none are held out. Optional custom settings.
+- **Show / Hide Gaussian Splat** loads the PLY under the job's ViPE alignment: with KIRI 3DGS Render (4.x on Blender 4.4, 5.x on Blender 5.1+) or Blender 5.3's native splats. Placement is checked against the PLY; the splat is in the ViPE world like the dense samples (no extra rotation).
+- Version-4 bundles include the Gaussian PLY, camera and nearby-view previews, mask sheet and dataset report; the splat has its own 3 GiB transfer budget. The 1+ GB trainer checkpoint is deleted on the worker after export.
+- Plate compositor works on Blender 5 (compositor node groups); the add-on is tested on Blender 4.4, 5.1.1 and 5.2.3 LTS.
+- Added a directly loadable ComfyUI workflow, offline worker setup guide, coordinate and geometry tests, and Blender attachment, viewing and end-to-end tests.
 
 ## Blender add-on 0.5.2
 

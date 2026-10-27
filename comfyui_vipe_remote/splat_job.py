@@ -15,19 +15,14 @@ class ViPESplatJob:
                 "request_id": ("STRING", {"default": ""}),
             },
             "optional": {
-                "splat_iterations": (
-                    "INT",
-                    {"default": 15000, "min": 100, "max": 60000},
-                ),
-                "splat_max_dimension": (
-                    "INT",
-                    {"default": 1536, "min": 256, "max": 2048},
-                ),
-                "splat_frame_step": ("INT", {"default": 3, "min": 1, "max": 20}),
-                "splat_max_gaussians": (
-                    "INT",
-                    {"default": 1000000, "min": 50000, "max": 1500000},
-                ),
+                "splat_preset": (["quick", "quality"], {"default": "quick"}),
+                "splat_iterations": ("INT", {"default": 10000, "min": 100, "max": 60000}),
+                "splat_max_dimension": ("INT", {"default": 1536, "min": 256, "max": 4096}),
+                "splat_frame_step": ("INT", {"default": 1, "min": 1, "max": 20}),
+                "splat_max_gaussians": ("INT", {"default": 1000000, "min": 50000, "max": 6000000}),
+                # Optional higher-resolution plate of exactly the solved frames (EXR jobs upload a 1280 px solve proxy).
+                "splat_training_video": ("STRING", {"default": ""}),
+                "splat_training_sha256": ("STRING", {"default": ""}),
             },
         }
 
@@ -41,7 +36,7 @@ class ViPESplatJob:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def train(self, parent_job_id, request_id, **settings):
+    def train(self, parent_job_id, request_id, splat_training_video="", splat_training_sha256="", **settings):
         from . import (
             config,
             job_id,
@@ -49,6 +44,9 @@ class ViPESplatJob:
             new_job_directory,
             run_worker,
             folder_paths,
+            file_sha256,
+            prepare_frame_archive,
+            resolve_video,
         )
         from .worker import link_or_copy
 
@@ -113,12 +111,24 @@ class ViPESplatJob:
         manifest["version"] = 3
         (output / "result.json").write_text(json.dumps(manifest, indent=2))
         link_or_copy(masks, work / "solve_masks.zip")
+        training = {}
+        if splat_training_video.strip():
+            video = resolve_video(splat_training_video)
+            if file_sha256(video) != splat_training_sha256:
+                raise ValueError("Uploaded training plate checksum changed; upload it again.")
+            if video.suffix == ".zip":
+                (work / "training").mkdir()
+                video, plate = prepare_frame_archive(video, work / "training", config())
+                if plate.get("frame_count", manifest["source"]["frame_count"]) != manifest["source"]["frame_count"]:
+                    raise ValueError("The training plate has a different frame count from the solved plate.")
+            training = {"training_source": str(video), "training_sha256": file_sha256(video)}
         request = {
             **previous,
             "job_id": identifier,
             "output": str(output),
             "review_of": parent,
             "splat_of": parent,
+            **training,
             "settings": {
                 **previous["settings"],
                 **settings,

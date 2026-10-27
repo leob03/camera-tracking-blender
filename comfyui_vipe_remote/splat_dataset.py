@@ -123,7 +123,37 @@ def filter_seeds(points, colors, views, max_points):
     )
 
 
-def prepare_dataset(result_dir, source, masks_path, out, settings, progress=print):
+MAX_VIEWS = 400  # long shots are subsampled evenly beyond this many training images
+
+
+def frame_selection(count, step, max_views=MAX_VIEWS):
+    """Every step-th solved frame, subsampled evenly when the shot is longer than max_views."""
+    step = max(step, -(-count // max_views))
+    return np.arange(0, count, step, dtype=int)
+
+
+def training_size(original, frame_size, max_dimension):
+    """Even-pixel training size: the plate aspect, at most max_dimension, never above the decoded frames."""
+    long_edge = min(max_dimension, max(frame_size))
+    scale = min(1.0, long_edge / max(original))
+    return [max(2, round(x * scale / 2) * 2) for x in original]
+
+
+def native_seeds(result_dir, manifest):
+    """The post-BA native map (bundle-adjusted points with plate colours), when the result has one."""
+    path = result_dir / "cloud.npz"
+    if "cloud.npz" not in manifest.get("files", {}) or not path.is_file():
+        return np.zeros((0, 3)), np.zeros((0, 3))
+    with np.load(path, allow_pickle=False) as d:
+        xyz, rgb = d["xyz"].astype(np.float64), d["rgb"].astype(np.float64)
+    if rgb.max(initial=0) > 1:
+        rgb = rgb / 255
+    keep = np.isfinite(xyz).all(1) & np.isfinite(rgb).all(1)
+    return xyz[keep], np.clip(rgb[keep], 0, 1)
+
+
+def prepare_dataset(result_dir, source, masks_path, out, settings, progress=print, training_source=None):
+    """training_source: optional higher-resolution movie of exactly the solved source frames."""
     result_dir, source, masks_path, out = map(
         Path, (result_dir, source, masks_path, out)
     )
@@ -150,22 +180,31 @@ def prepare_dataset(result_dir, source, masks_path, out, settings, progress=prin
     if not np.isfinite(poses).all() or not np.isfinite(ks).all():
         raise ValueError("Non-finite camera data.")
     n = len(poses)
-    step = settings.get("splat_frame_step", 3)
-    selected = np.arange(0, n, step, dtype=int)
+    selected = frame_selection(n, settings.get("splat_frame_step", 1))
     if len(selected) < 12:
         raise ValueError(
             "Splat training needs at least 12 selected views; reduce the frame step."
         )
     original = (m["source"]["width"], m["source"]["height"])
-    scale = min(1.0, settings.get("splat_max_dimension", 1536) / max(original))
-    width, height = [max(2, round(x * scale / 2) * 2) for x in original]
+    frames = Path(training_source) if training_source else source
+    cap = cv2.VideoCapture(str(frames))
+    if not cap.isOpened():
+        raise ValueError("Cannot open the source movie for splat training.")
+    decoded = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    if abs(decoded[0] / decoded[1] - original[0] / original[1]) > 0.01 * original[0] / original[1]:
+        cap.release()
+        raise ValueError("The training plate and the solved plate have different aspect ratios.")
+    if training_source:
+        # The training plate holds exactly the solve's source frames (same proxy selection, more pixels).
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total and total != int(m["source"].get("frame_count", total)):
+            cap.release()
+            raise ValueError("The training plate has a different frame count from the solved plate.")
+    width, height = training_size(original, decoded, settings.get("splat_max_dimension", 2048))
     out.mkdir(parents=True, exist_ok=False)
     for name in ["images", "masks", "sparse/0"]:
         (out / name).mkdir(parents=True)
-    cap = cv2.VideoCapture(str(source))
     wanted = {int(source_indices[i]): int(i) for i in selected}
-    if not cap.isOpened():
-        raise ValueError("Cannot open the source movie for splat training.")
     cam_lines = []
     image_lines = []
     preview = []
@@ -244,8 +283,12 @@ def prepare_dataset(result_dir, source, masks_path, out, settings, progress=prin
     points = np.concatenate([a["points"] for _, a in env])
     colors = np.concatenate([a["colors"] for _, a in env])
     points, colors, seed_report = filter_seeds(
-        points, colors, env, min(150000, settings.get("splat_max_gaussians", 1000000))
+        points, colors, env, min(settings.get("splat_seed_points", 400000), settings.get("splat_max_gaussians", 3000000))
     )
+    # Bundle-adjusted native points are already multi-view consistent; they add seeds outside the dense views.
+    native, native_rgb = native_seeds(result_dir, m)
+    points, colors = np.concatenate([points, native]), np.concatenate([colors, native_rgb])
+    seed_report.update(native_points=len(native), seed_points=len(points))
     with (out / "sparse/0/points3D.txt").open("w") as f:
         for i, (p, c) in enumerate(
             zip(points, np.rint(colors * 255).astype(np.uint8)), 1
@@ -278,9 +321,10 @@ def prepare_dataset(result_dir, source, masks_path, out, settings, progress=prin
         mask_excluded_max=max(mask_fractions),
         masks="white=photometric training; black=ignore; dilated TrackAnything dynamics; sky retained",
         cameras="frozen ViPE; COLMAP-format interchange only; no COLMAP solve",
-        seed_source="filtered dense environment; multi-view depth agreement and voxel deduplication",
-        heldout="Every 8th training image held out of photometric fitting only; ViPE cameras/depth used the full shot.",
-        world="ViPE OpenCV world; LichtFeld import/export applies Y/Z flip",
+        seed_source="filtered dense environment (multi-view depth agreement, voxel deduplication) plus the post-BA native map",
+        training_plate="uploaded training plate" if training_source else "solved source movie",
+        decoded_size=list(decoded),
+        world="ViPE OpenCV world; the exported PLY stays in this world (LichtFeld's internal Y/Z flip is undone on export)",
         **seed_report,
     )
     (out / "dataset.json").write_text(json.dumps(report, indent=2))

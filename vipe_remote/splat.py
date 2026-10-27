@@ -63,3 +63,79 @@ def attach_splat(collection, bundle, manifest):
     collection["vipe_splat_job_id"] = manifest["job_id"]
     collection["vipe_splat_bundle"] = str(Path(bundle).resolve())
     collection["vipe_splat_coordinates"] = manifest["splat"]["coordinates"]
+
+
+def _ply_positions(path, count=2000):
+    """The first vertex positions of a binary little-endian Gaussian PLY (x, y, z are its first float properties)."""
+    import numpy as np
+    with open(path, 'rb') as stream:
+        header = []
+        while not header or header[-1] != 'end_header':
+            header.append(stream.readline().decode('ascii', 'replace').strip())
+            if len(header) > 400:
+                raise ValueError('Unreadable PLY header.')
+        if 'format binary_little_endian 1.0' not in header:
+            raise ValueError('Expected a binary little-endian Gaussian PLY.')
+        properties = [line.split() for line in header if line.startswith('property')]
+        if [p[2] for p in properties[:3]] != ['x', 'y', 'z'] or any(p[1] != 'float' for p in properties):
+            raise ValueError('Unexpected Gaussian PLY layout.')
+        data = np.fromfile(stream, dtype='<f4', count=count * len(properties))
+    return data.reshape(-1, len(properties))[:, :3]
+
+
+def _object_positions(obj, count):
+    import numpy as np
+    data = obj.data
+    points = data.vertices if obj.type == 'MESH' else data.points
+    co = np.empty(len(points) * 3, np.float32)
+    points.foreach_get('co', co)
+    return co.reshape(-1, 3)[:count]
+
+
+def import_correction(obj, path):
+    """Local matrix that puts imported splat positions back in the PLY's ViPE world, whichever importer converted axes."""
+    import itertools
+    import numpy as np
+    from mathutils import Matrix
+    raw = _ply_positions(path)
+    got = _object_positions(obj, len(raw)).astype(np.float64)
+    raw = raw[:len(got)]
+    for perm in itertools.permutations(range(3)):
+        for signs in itertools.product((1, -1), repeat=3):
+            m = np.zeros((3, 3))
+            m[range(3), perm] = signs  # got = m @ raw
+            if np.allclose(got, raw @ m.T, atol=1e-4 * (1 + np.abs(raw).max())):
+                return Matrix(m.T.tolist()).to_4x4()  # undo it under the alignment parent
+    raise ValueError('The imported splat does not match its PLY positions; it was not placed.')
+
+
+def native_splats_available():
+    import bpy
+    return bpy.app.version >= (5, 3, 0)
+
+
+def kiri_available():
+    import bpy
+    return hasattr(bpy.ops, 'sna') and 'dgs_render_import_ply_e0a3a' in dir(bpy.ops.sna)
+
+
+def load_splat(context, path):
+    """Import a Gaussian PLY as a renderable splat; returns the new objects, the splat first."""
+    import bpy
+    before = set(bpy.data.objects)
+    if native_splats_available():
+        bpy.ops.wm.ply_import(filepath=str(path))
+        obj = context.view_layer.objects.active
+        if obj is None or obj.type != 'POINTCLOUD':
+            raise ValueError('Blender did not import this PLY as Gaussian splats.')
+    elif kiri_available():
+        area = next((a for a in context.window.screen.areas if a.type == 'VIEW_3D'), None) if context.window else None
+        override = dict(area=area, region=next(r for r in area.regions if r.type == 'WINDOW')) if area else {}
+        with context.temp_override(**override):
+            if bpy.ops.sna.dgs_render_import_ply_e0a3a('EXEC_DEFAULT', filepath=str(path)) != {'FINISHED'}:
+                raise ValueError('KIRI 3DGS Render could not import the splat.')
+        obj = context.view_layer.objects.active
+    else:
+        raise ValueError('To view the splat in Blender, install KIRI 3DGS Render (Blender 5.1+) or use Blender 5.3+. The rendered previews still work.')
+    created = [o for o in bpy.data.objects if o not in before]
+    return [obj] + [o for o in created if o is not obj]

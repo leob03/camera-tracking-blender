@@ -11,7 +11,7 @@
       ],
       "size": [
         460,
-        380
+        440
       ],
       "flags": {},
       "order": 0,
@@ -30,10 +30,13 @@
       "widgets_values": [
         "",
         "",
-        15000,
+        "quick",
+        10000,
         1536,
-        3,
-        1000000
+        1,
+        1000000,
+        "",
+        ""
       ]
     },
     {
@@ -54,7 +57,7 @@
       "outputs": [],
       "properties": {},
       "widgets_values": [
-        "GAUSSIAN ENVIRONMENT\n\nEnter the ID of a completed job containing Dense Environment. Keep request_id empty to create a fresh job each Run.\n\nUses retained TrackAnything masks, solved cameras and filtered dense points. No camera solve is rerun.\n\nRequires the worker\u2019s optional LichtFeld executable. Outputs: Gaussian PLY, camera-path preview, nearby-view preview and mask contact sheet.\n\nStatic environment only; moving subjects are excluded. Review masks before increasing training settings."
+        "GAUSSIAN ENVIRONMENT\n\nEnter the ID of a completed job containing Dense Environment. Keep request_id empty to create a fresh job each Run.\n\nUses retained TrackAnything masks, solved cameras and filtered dense points. No camera solve is rerun.\n\nRequires the worker’s optional LichtFeld executable. Outputs: Gaussian PLY, camera-path preview, nearby-view preview and mask contact sheet.\n\nStatic environment only; moving subjects are excluded. splat_preset sets the defaults: quick (10k steps, 1536 px, 1M Gaussians) or quality (30k, 2048 px, 3M). From ComfyUI the per-field values apply as entered. A training video is optional (the Blender add-on uploads one for EXR plates)."
       ]
     }
   ],

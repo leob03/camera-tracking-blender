@@ -8,14 +8,20 @@ import zipfile
 import numpy as np
 
 
+SPLAT_LIMIT = 3 * 1024**3  # about 12 million Gaussians at SH degree 3
+
+
 def load_bundle(path, expected_source_sha256=None):
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
         names = {x.filename for x in members}
         if len(members) != len(names) or not {"result.json", "camera.npz", "cloud.npz"}.issubset(names):
             raise ValueError("Camera bundle has unexpected or duplicate files.")
-        if sum(x.file_size for x in members) > 512 * 1024**2:
+        # Gaussian splat files are streamed and hashed, never loaded; they have their own, larger budget.
+        if sum(x.file_size for x in members if not x.filename.startswith('splat/')) > 512 * 1024**2:
             raise ValueError("Camera bundle is too large to import.")
+        if sum(x.file_size for x in members if x.filename.startswith('splat/')) > SPLAT_LIMIT:
+            raise ValueError("The Gaussian splat in this bundle is too large to import.")
         if archive.getinfo("result.json").file_size > 1024**2:
             raise ValueError("Camera manifest is too large.")
         manifest = json.loads(archive.read("result.json"))

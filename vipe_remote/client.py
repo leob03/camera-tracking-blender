@@ -7,6 +7,8 @@ import time
 from urllib.parse import urlencode, urlsplit
 import uuid
 
+from .bundle import SPLAT_LIMIT
+
 
 class APIError(RuntimeError):
     def __init__(self, status, message):
@@ -250,8 +252,8 @@ class Client:
                     if stop():
                         raise Detached("Download stopped; use Resume Job to retrieve it later.")
                     received += len(chunk)
-                    if received > 512 * 1024**2:
-                        raise ValueError("Camera bundle exceeds the 512 MiB client limit.")
+                    if received > 512 * 1024**2 + SPLAT_LIMIT:
+                        raise ValueError("The result exceeds the client download limit.")
                     stream.write(chunk)
                     digest.update(chunk)
                     progress("Downloading result", received / total if total else 0)

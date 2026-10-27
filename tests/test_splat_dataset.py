@@ -17,8 +17,10 @@ from splat_dataset import (
     read_masks,
     filter_seeds,
     write_camera_path,
+    frame_selection,
+    training_size,
 )
-from splat_stage import settings_checked, trainer_command
+from splat_stage import scratch_bytes, settings_checked, trainer_command
 
 
 class SplatDatasetTests(unittest.TestCase):
@@ -103,6 +105,33 @@ class SplatDatasetTests(unittest.TestCase):
         self.assertIn("--no-download", command)
         self.assertEqual(command[command.index("--centralize") + 1], "off")
         self.assertNotIn("--optimize-poses", command)
+
+    def test_presets_scale_the_whole_schedule(self):
+        quick = settings_checked({})
+        self.assertEqual((quick["splat_preset"], quick["splat_iterations"], quick["splat_frame_step"]), ("quick", 10000, 1))
+        quality = settings_checked({"splat_preset": "quality"})
+        self.assertEqual((quality["splat_iterations"], quality["splat_max_dimension"], quality["splat_max_gaussians"]), (30000, 2048, 3000000))
+        with self.assertRaises(ValueError):
+            settings_checked({"splat_preset": "ultra"})
+        command = trainer_command("/opt/trainer", "data", "output", {"splat_iterations": 15000})
+        # The schedule stays 30k-shaped and is scaled; plain --iter would stop it halfway through densification.
+        self.assertEqual(command[command.index("--iter") + 1], "30000")
+        self.assertEqual(float(command[command.index("--steps-scaler") + 1]), 0.5)
+        self.assertNotIn("--test-every", command)  # artist runs train on every selected frame
+
+    def test_disk_guard_scales_with_the_job(self):
+        quick, quality = (scratch_bytes(settings_checked({"splat_preset": p})) for p in ("quick", "quality"))
+        self.assertLess(quick, quality)
+        self.assertLess(quality, 5 * 1024**3)  # no longer a fixed 5 GiB for every job
+        self.assertGreater(quality, 3 * 3000000 * 248)  # PLY, its result copy and the checkpoint
+
+    def test_frame_selection_and_training_size(self):
+        np.testing.assert_array_equal(frame_selection(10, 1), np.arange(10))
+        self.assertEqual(len(frame_selection(1000, 1)), 334)  # long shots are subsampled to at most 400 views
+        self.assertLessEqual(len(frame_selection(401, 1)), 400)
+        # Never upscale a 1280 px solve proxy; keep the plate aspect at even sizes.
+        self.assertEqual(training_size((4608, 3164), (1280, 878), 2048), [1280, 878])
+        self.assertEqual(training_size((4096, 2160), (4096, 2160), 2048), [2048, 1080])
 
 
 if __name__ == "__main__":
