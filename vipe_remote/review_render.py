@@ -89,19 +89,34 @@ def set_markers_in_render(collection, enabled):
     collection['vipe_markers_in_render'] = enabled
 
 
+BLENDER_5_COMPOSITOR = 'compositing_node_group' in bpy.types.Scene.bl_rna.properties
+
+
 def _owned(tree):
-    return all(node.type in ('R_LAYERS', 'COMPOSITE') or node.name.startswith(NODE_PREFIX) for node in tree.nodes)
+    return all(node.type in ('R_LAYERS', 'COMPOSITE', 'GROUP_OUTPUT') or node.name.startswith(NODE_PREFIX) for node in tree.nodes)
+
+
+def compositor_tree(scene, create=False):
+    """The scene's compositor nodes: scene.node_tree up to Blender 4, a compositor node group from Blender 5."""
+    if BLENDER_5_COMPOSITOR:
+        tree = scene.compositing_node_group
+        if tree is None and create:
+            tree = scene.compositing_node_group = bpy.data.node_groups.new(NODE_PREFIX + 'plate compositor', 'CompositorNodeTree')
+        if create and not any(item.item_type == 'SOCKET' and item.in_out == 'OUTPUT' and item.name == 'Image' for item in tree.interface.items_tree):
+            tree.interface.new_socket('Image', in_out='OUTPUT', socket_type='NodeSocketColor')
+        return tree
+    if create:
+        scene.use_nodes = True
+    return scene.node_tree if scene.use_nodes else None
 
 
 def setup_plate_compositor(scene, clip, undistort=False):
     """Composite the plate under the render; never replaces an artist's own compositor setup."""
-    if not hasattr(scene, 'node_tree'):
-        return False  # compositor API changed (Blender 5); keep the viewport setup only
-    if scene.node_tree is not None and scene.use_nodes and not _owned(scene.node_tree):
+    existing = compositor_tree(scene)
+    if existing is not None and not _owned(existing):
         return False
-    scene.use_nodes = True
-    tree = scene.node_tree
-    for node in [n for n in tree.nodes if n.name.startswith(NODE_PREFIX) or n.type in ('R_LAYERS', 'COMPOSITE')]:
+    tree = compositor_tree(scene, create=True)
+    for node in [n for n in tree.nodes if n.name.startswith(NODE_PREFIX) or n.type in ('R_LAYERS', 'COMPOSITE', 'GROUP_OUTPUT')]:
         tree.nodes.remove(node)
     def add(kind, name, x):
         node = tree.nodes.new(kind)
@@ -115,16 +130,25 @@ def setup_plate_compositor(scene, clip, undistort=False):
     image = plate.outputs['Image']
     if undistort:
         distortion = add('CompositorNodeMovieDistortion', 'Undistort plate', -500)
-        distortion.clip, distortion.distortion_type = clip, 'UNDISTORT'
+        distortion.clip = clip
+        if BLENDER_5_COMPOSITOR:
+            distortion.inputs['Type'].default_value = 'Undistort'
+        else:
+            distortion.distortion_type = 'UNDISTORT'
         tree.links.new(image, distortion.inputs['Image'])
         image = distortion.outputs['Image']
     scale = add('CompositorNodeScale', 'Plate to render size', -300)
-    scale.space, scale.frame_method = 'RENDER_SIZE', 'STRETCH'
+    if BLENDER_5_COMPOSITOR:  # node options became menu sockets in Blender 5
+        scale.inputs['Type'].default_value, scale.inputs['Frame Type'].default_value = 'Render Size', 'Stretch'
+    else:
+        scale.space, scale.frame_method = 'RENDER_SIZE', 'STRETCH'
     tree.links.new(image, scale.inputs['Image'])
     over = add('CompositorNodeAlphaOver', 'Render over plate', -50)
-    tree.links.new(scale.outputs['Image'], over.inputs[1])
-    tree.links.new(layers.outputs['Image'], over.inputs[2])
-    composite = add('CompositorNodeComposite', 'Composite', 200)
+    background, foreground = (over.inputs['Background'], over.inputs['Foreground']) if BLENDER_5_COMPOSITOR else (over.inputs[1], over.inputs[2])
+    tree.links.new(scale.outputs['Image'], background)
+    tree.links.new(layers.outputs['Image'], foreground)
+    # Blender 5 has no Composite node: the group output is the final image.
+    composite = add('NodeGroupOutput' if BLENDER_5_COMPOSITOR else 'CompositorNodeComposite', 'Composite', 200)
     tree.links.new(over.outputs['Image'], composite.inputs['Image'])
     viewer = add('CompositorNodeViewer', 'Viewer', 200)
     viewer.location.y = -200
