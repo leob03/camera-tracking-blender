@@ -33,6 +33,8 @@ splat = bpy.data.objects[names[0]]
 root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
 assert splat.parent == root and splat.get('vipe_role') == 'gaussian_splat'
 assert splat.users_collection[0].get('vipe_role') == 'splat_group'
+if splat.type == 'MESH':  # KIRI: camera-facing splat display, not its black point-editing display
+    assert splat.modifiers['KIRI_3DGS_Render_GN'].show_viewport and splat.get('update_rot_to_cam')
 bpy.context.view_layer.update()
 
 

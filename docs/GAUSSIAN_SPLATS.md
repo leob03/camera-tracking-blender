@@ -33,6 +33,7 @@ This stage does not repeat tracking or modify the camera, markers, scene alignme
 The add-on compares the imported positions with the PLY and undoes any axis conversion an importer applied, so the splat sits on the dense samples whichever importer ran.
 
 KIRI notes from testing (Ford 2.5M Gaussians, Linux):
+- KIRI imports in its point-editing display (bare vertices, black in Solid view). **Show Gaussian Splat** switches the splat to KIRI's camera-facing display (*Enable Camera Updates*) and the viewport to Material Preview. EEVEE compiles KIRI's shaders the first time (30–60 s); the plate shows until then. On big splats, *Show As Point Cloud* in the 3DGS Render tab is lighter.
 - Import takes about a minute; the viewport and EEVEE renders are approximate (EEVEE quads; grainy with dithered alpha, smoother but streaky with KIRI's blended HQ mode) and clearly below LichtFeld's own renders.
 - KIRI's own GPU renderer (Render panel) failed on Linux (its shader directory is only set by other code paths) and, once its shaders were loaded, used more than 14 GB of RAM before it was stopped. Treat it as untested for production-size splats.
 - KIRI's proxy object stores the whole Gaussian array in the `.blend` (about 240 MB per million Gaussians).

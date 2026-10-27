@@ -139,3 +139,18 @@ def load_splat(context, path):
         raise ValueError('To view the splat in Blender, install KIRI 3DGS Render (Blender 5.1+) or use Blender 5.3+. The rendered previews still work.')
     created = [o for o in bpy.data.objects if o not in before]
     return [obj] + [o for o in created if o is not obj]
+
+
+def show_as_splats(context, obj):
+    """KIRI imports in its point-editing display (bare vertices, black in Solid view); switch to camera-facing splats.
+
+    KIRI 5.x calls the setting update_mode, 4.x active_object_update_mode; both act on the active object.
+    Returns True when the viewport needs Material Preview or Rendered shading to show the splat colours.
+    """
+    props = getattr(obj, 'sna_dgs_object_properties', None)
+    key = next((k for k in ('update_mode', 'active_object_update_mode') if props is not None and hasattr(props, k)), None)
+    if key is None:
+        return False
+    context.view_layer.objects.active = obj
+    setattr(props, key, 'Enable Camera Updates')
+    return True

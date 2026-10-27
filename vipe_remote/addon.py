@@ -709,7 +709,7 @@ class VIPE_OT_view_splat(bpy.types.Operator):
         return collection is not None and bool(collection.get('vipe_splat_ply'))
 
     def execute(self, context):
-        from .splat import import_correction, load_splat
+        from .splat import import_correction, load_splat, show_as_splats
         collection = job_collection(context)
         objects = [bpy.data.objects.get(name) for name in json.loads(collection.get('vipe_splat_objects', '[]'))]
         objects = [o for o in objects if o is not None]
@@ -742,7 +742,15 @@ class VIPE_OT_view_splat(bpy.types.Operator):
             obj['vipe_role'] = 'gaussian_splat'
         objects[0].name = f"Gaussian splat {collection['vipe_job_id'][:8]}"
         collection['vipe_splat_objects'] = json.dumps([o.name for o in objects])
-        self.report({'INFO'}, f'Loaded {objects[0].name}')
+        message = f'Loaded {objects[0].name}'
+        if show_as_splats(context, objects[0]):
+            # KIRI's splat material only shows in Material Preview or Rendered shading.
+            areas = [a for a in (context.screen.areas if context.screen else []) if a.type == 'VIEW_3D']
+            for area in areas:
+                if area.spaces.active.shading.type in {'SOLID', 'WIREFRAME'}:
+                    area.spaces.active.shading.type = 'MATERIAL'
+            message += '; viewport set to Material Preview (KIRI 3DGS Render tab: Show As Point Cloud is lighter on big splats)'
+        self.report({'INFO'}, message)
         return {'FINISHED'}
 
 
