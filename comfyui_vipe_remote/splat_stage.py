@@ -4,8 +4,10 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
+import sys
 import time
 
 from worker import digest, write_status
@@ -24,6 +26,7 @@ LIMITS = {
     "splat_max_gaussians": (50000, 6000000),
 }
 SCHEDULE_ITERATIONS = 30000  # LichtFeld's MRNF schedule is defined for 30k steps; --steps-scaler shrinks all of it
+TRAINING_STEP = re.compile(rb"(\d+)/(\d+) \| Loss")  # LichtFeld's progress bar: "... 1200/10000 | Loss: 0.04 | Splats: ..."
 
 
 def settings_checked(settings):
@@ -88,6 +91,21 @@ def scratch_bytes(settings):
     return 1024**3 + views * long_edge * long_edge * 0.56 * 0.4 + 4 * ply
 
 
+def run_trainer(command, cwd, env, on_step):
+    """Run LichtFeld, passing its output through to the worker log and reporting its step counter."""
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    tail = b""
+    for chunk in iter(lambda: process.stdout.read1(65536), b""):
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+        tail = (tail + chunk)[-1024:]
+        steps = TRAINING_STEP.findall(tail)
+        if steps:
+            on_step(*map(int, steps[-1]))
+    if process.wait():
+        raise subprocess.CalledProcessError(process.returncode, command)
+
+
 def run(request_path, config_path):
     request = json.loads(request_path.read_text())
     cfg = json.loads(config_path.read_text())
@@ -136,7 +154,15 @@ def run(request_path, config_path):
     command = trainer_command(executable, dataset, run_dir, s)
     write_status(work, "running", "Training Gaussian splat", 30)
     print("[ViPE splat] Command: " + json.dumps(command), flush=True)
-    subprocess.run(command, cwd=work, env=env, check=True)
+    shown = [30]
+
+    def on_step(step, total):
+        progress = 30 + 55 * min(step, total) // max(total, 1)  # training spans 30-85%
+        if progress != shown[0]:
+            shown[0] = progress
+            write_status(work, "running", f"Training Gaussian splat (step {step:,} of {total:,})", progress)
+
+    run_trainer(command, work, env, on_step)
     ply = run_dir / "scene.ply"
     if not ply.is_file():
         alternate = run_dir / f"splat_{s['splat_iterations']}.ply"

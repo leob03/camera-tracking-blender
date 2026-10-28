@@ -20,7 +20,7 @@ from splat_dataset import (
     frame_selection,
     training_size,
 )
-from splat_stage import scratch_bytes, settings_checked, trainer_command
+from splat_stage import run_trainer, scratch_bytes, settings_checked, trainer_command
 
 
 class SplatDatasetTests(unittest.TestCase):
@@ -124,6 +124,22 @@ class SplatDatasetTests(unittest.TestCase):
         self.assertLess(quick, quality)
         self.assertLess(quality, 5 * 1024**3)  # no longer a fixed 5 GiB for every job
         self.assertGreater(quality, 3 * 3000000 * 248)  # PLY, its result copy and the checkpoint
+
+    def test_trainer_steps_reach_the_progress_bar(self):
+        # LichtFeld redraws its bar with carriage returns; a counter can be split across reads.
+        script = "import sys,time\nfor i in (100, 5000, 10000):\n    sys.stdout.write(f'\\rTraining [==] {i//100}% {i}/10000 | Loss: 0.04 | Splats: 9 '); sys.stdout.flush(); time.sleep(0.05)\nprint()"
+        steps = []
+        out = io.BytesIO()
+        stdout = sys.stdout
+        sys.stdout = io.TextIOWrapper(out)
+        try:
+            run_trainer([sys.executable, "-c", script], None, None, lambda step, total: steps.append((step, total)))
+        finally:
+            sys.stdout = stdout
+        self.assertEqual(steps[-1], (10000, 10000))
+        self.assertIn((5000, 10000), steps)
+        with self.assertRaises(Exception):
+            run_trainer([sys.executable, "-c", "raise SystemExit(3)"], None, None, lambda *a: None)
 
     def test_frame_selection_and_training_size(self):
         np.testing.assert_array_equal(frame_selection(10, 1), np.arange(10))

@@ -9,7 +9,7 @@ from mathutils import Matrix, Vector
 import numpy as np
 
 
-SKIP_ROLES = {'static_marker_geometry', 'alignment', 'camera', 'native_cloud', 'dense_samples', 'dense_surface', 'review_cross_part', 'gaussian_splat'}
+SKIP_ROLES = {'static_marker_geometry', 'alignment', 'camera', 'native_cloud', 'dense_samples', 'dense_surface', 'review_cross_part', 'gaussian_splat', 'kiri_splat'}
 
 
 def _record(props):

@@ -52,7 +52,8 @@ assert collection.get('vipe_splat_ply') and Path(collection['vipe_splat_ply']).i
 splat_record = json.loads((Path(cache) / collection['vipe_splat_job_id'] / 'job.json').read_text())
 report = json.loads((Path(collection['vipe_splat_directory']) / 'dataset.json').read_text())
 assert bpy.ops.vipe_remote.view_splat(show=True) == {'FINISHED'}
-names = json.loads(collection['vipe_splat_objects'])
+names = [collection['vipe_splat_viewer']]
+assert bpy.data.objects[names[0]]['vipe_splat_ply'] == collection['vipe_splat_ply']
 print('E2E', json.dumps(dict(preset=preset, timings=timings, training_long_edge=splat_record.get('training_long_edge'), training_plate=report['training_plate'],
                              decoded=report['decoded_size'], size=[report['width'], report['height']], views=report['count'], seeds=report['seed_points'],
                              objects=names, ply_mb=round(Path(collection['vipe_splat_ply']).stat().st_size / 1e6, 1))))

@@ -109,34 +109,21 @@ def import_correction(obj, path):
     raise ValueError('The imported splat does not match its PLY positions; it was not placed.')
 
 
-def native_splats_available():
-    import bpy
-    return bpy.app.version >= (5, 3, 0)
-
-
 def kiri_available():
     import bpy
     return hasattr(bpy.ops, 'sna') and 'dgs_render_import_ply_e0a3a' in dir(bpy.ops.sna)
 
 
-def load_splat(context, path):
-    """Import a Gaussian PLY as a renderable splat; returns the new objects, the splat first."""
+def kiri_import(context, path):
+    """Import a Gaussian PLY with KIRI 3DGS Render; returns the new objects, the splat first."""
     import bpy
     before = set(bpy.data.objects)
-    if native_splats_available():
-        bpy.ops.wm.ply_import(filepath=str(path))
-        obj = context.view_layer.objects.active
-        if obj is None or obj.type != 'POINTCLOUD':
-            raise ValueError('Blender did not import this PLY as Gaussian splats.')
-    elif kiri_available():
-        area = next((a for a in context.window.screen.areas if a.type == 'VIEW_3D'), None) if context.window else None
-        override = dict(area=area, region=next(r for r in area.regions if r.type == 'WINDOW')) if area else {}
-        with context.temp_override(**override):
-            if bpy.ops.sna.dgs_render_import_ply_e0a3a('EXEC_DEFAULT', filepath=str(path)) != {'FINISHED'}:
-                raise ValueError('KIRI 3DGS Render could not import the splat.')
-        obj = context.view_layer.objects.active
-    else:
-        raise ValueError('To view the splat in Blender, install KIRI 3DGS Render (Blender 5.1+) or use Blender 5.3+. The rendered previews still work.')
+    area = next((a for a in context.window.screen.areas if a.type == 'VIEW_3D'), None) if context.window else None
+    override = dict(area=area, region=next(r for r in area.regions if r.type == 'WINDOW')) if area else {}
+    with context.temp_override(**override):
+        if bpy.ops.sna.dgs_render_import_ply_e0a3a('EXEC_DEFAULT', filepath=str(path)) != {'FINISHED'}:
+            raise ValueError('KIRI 3DGS Render could not import the splat.')
+    obj = context.view_layer.objects.active
     created = [o for o in bpy.data.objects if o not in before]
     return [obj] + [o for o in created if o is not obj]
 

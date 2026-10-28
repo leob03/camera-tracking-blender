@@ -7,8 +7,8 @@ Blender add-on **0.6.0** and ComfyUI node pack **0.5.0** add optional Gaussian t
 1. Install `dist/vipe_remote-0.6.0.zip` and restart Blender. The worker also needs the updated node pack and configured trainer below.
 2. Solve a shot with **Exclude dynamic categories** enabled. Enable **Dense environment reconstruction**, or use **Results → Add Dense Environment** after solving.
 3. Inspect the camera and dense geometry. In the **Gaussian Splat** sub-panel (below Results), choose **Quick preview** or **Quality** and click **Train Gaussian Environment**.
-4. Follow **Open Live Log**, or the terminal used to launch Blender. Cancel and resume monitoring use the existing job controls.
-5. When complete, click **Show Gaussian Splat** to load it under the job's **ViPE alignment**, or open **Camera preview**, **Nearby view**, **Masks** and **Output folder**. The downloaded Gaussian asset is `splat/scene.ply` beside this extension job's `result.zip`.
+4. The progress bar follows the trainer's steps (30–85%). Follow **Open Live Log**, or the terminal used to launch Blender. Cancel and resume monitoring use the existing job controls.
+5. When complete, click **Show Gaussian Splat** to draw it under the job's **ViPE alignment**, or open **Camera preview**, **Nearby view**, **Masks** and **Output folder**. The downloaded Gaussian asset is `splat/scene.ply` beside this extension job's `result.zip`.
 
 This stage does not repeat tracking or modify the camera, markers, scene alignment or dense geometry. It trains static appearance; the moving subjects are excluded from the image loss. It is never enabled automatically.
 
@@ -24,19 +24,34 @@ This stage does not repeat tracking or modify the camera, markers, scene alignme
 
 ## Viewing the splat in Blender
 
-**Show Gaussian Splat** imports `splat/scene.ply` into a **06 Gaussian splat** collection under the job, parented to the **ViPE alignment** object, so it follows Set Floor / Origin / Scale like the rest of the job. It uses, in order:
+**Show Gaussian Splat** draws `splat/scene.ply` with the add-on's own viewport splat renderer: the same Gaussian
+projection, view-dependent (spherical-harmonic) colour and back-to-front blending as the trainer's previews, so the
+viewport looks like **Camera preview**. It adds a light Empty to a **06 Gaussian splat** collection under the job,
+parented to the **ViPE alignment** object, so it follows Set Floor / Origin / Scale. The PLY stays on disk; nothing
+large is stored in the `.blend`. While the splat is shown, the dense environment and point cloud are hidden; **Hide
+Gaussian Splat** brings them back. It works in any viewport shading mode (Solid is fastest) on Blender 4.4 to 5.2.
 
-1. **Blender 5.3+ native splats** (point clouds of type 3D Gaussian Splats; Workbench, EEVEE and Cycles). Not yet tested here: 5.3 is in beta.
-2. **KIRI 3DGS Render**, if installed: 4.1.x on Blender 4.4, 5.1.0 on Blender 5.1/5.2 (5.x needs Blender 5.1+). Tested on Blender 4.4 + KIRI 4.1.3 and Blender 5.2.3 + KIRI 5.1.0.
-3. Otherwise the button reports what to install; the rendered previews still work.
+- **View-dependent colour**: SH degree 3 matches the previews; 0 is flat colour and lighter on the GPU.
+- **Gaussians shown**: draw only the most visible share of Gaussians, for small GPUs.
+- **Behind scene objects**: the splat is hidden behind Blender geometry using the viewport depth (on by default).
 
-The add-on compares the imported positions with the PLY and undoes any axis conversion an importer applied, so the splat sits on the dense samples whichever importer ran.
+Measured on a Quadro RTX 5000 (1574×830 viewport, skateboard_alley Quality splat, 2.08M Gaussians): loads in about 5 s;
+redraws in about 25 ms (6 ms without the splat), on Blender 4.4 and 5.2.3. Moving the view re-sorts the Gaussians in a
+background thread (about 0.2 s for 2M), so navigation never waits on it. Colours match the plate within 1/255 in static
+areas. GPU memory is about 150 MB per million Gaussians.
 
-KIRI notes from testing (Ford 2.5M Gaussians, Linux):
-- KIRI imports in its point-editing display (bare vertices, black in Solid view). **Show Gaussian Splat** switches the splat to KIRI's camera-facing display (*Enable Camera Updates*) and the viewport to Material Preview. EEVEE compiles KIRI's shaders the first time (30–60 s); the plate shows until then. On big splats, *Show As Point Cloud* in the 3DGS Render tab is lighter.
-- Import takes about a minute; the viewport and EEVEE renders are approximate (EEVEE quads; grainy with dithered alpha, smoother but streaky with KIRI's blended HQ mode) and clearly below LichtFeld's own renders.
-- KIRI's own GPU renderer (Render panel) failed on Linux (its shader directory is only set by other code paths) and, once its shaders were loaded, used more than 14 GB of RAM before it was stopped. Treat it as untested for production-size splats.
-- KIRI's proxy object stores the whole Gaussian array in the `.blend` (about 240 MB per million Gaussians).
+The splat is viewport-only; it does not appear in F12 renders. **Camera preview** is the trainer's render along the
+solved camera (how well the splat reproduces the shot); **Nearby view** shifts that path sideways by 2.5% of the scene
+depth (how well the 3D holds up away from the original camera).
+
+**Open in KIRI 3DGS Render** (shown when that add-on is installed: 4.1.x on Blender 4.4, 5.1.0 on Blender 5.1/5.2)
+imports the same PLY into KIRI for its editing, relighting and mesh-shadow tools, switched to KIRI's splat display.
+It places the import under the alignment like the viewer. KIRI notes from testing (Ford 2.5M Gaussians, Linux):
+- Import takes about a minute; KIRI's EEVEE display is approximate (camera-facing quads, grain or streaks near the
+  camera) and the viewport is slow on multi-million splats. Its first display waits 30–60 s for EEVEE shaders.
+- KIRI's own GPU renderer (Render mode) failed on Linux (its shader directory is only set by other code paths) and,
+  once its shaders were loaded, used more than 14 GB of RAM: it fills its GPU textures through Python lists.
+- KIRI stores the whole Gaussian array in the `.blend` (about 240 MB per million Gaussians).
 
 ## Worker setup
 

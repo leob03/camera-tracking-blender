@@ -21,7 +21,7 @@ from .client import Client, Detached, JobCancelled
 from .importer import _child_collection, import_bundle
 from .job_logs import LogBuffer
 from .scene_tools import CLASSES as SCENE_TOOL_CLASSES, job_collection
-from . import plate_proxy
+from . import plate_proxy, splat_viewer
 from .sequence_flow import plate_pattern, prepare_training_plate, prepare_upload
 
 
@@ -130,6 +130,12 @@ class ViPERemoteProperties(bpy.types.PropertyGroup):
     splat_max_dimension: IntProperty(name="Training long edge", default=2048, min=256, max=4096, description="Pixels; larger images need more GPU memory and, for EXR plates, a larger upload")
     splat_frame_step: IntProperty(name="Use every Nth frame", default=1, min=1, max=20, description="Shots longer than 400 frames are also subsampled evenly")
     splat_max_gaussians: IntProperty(name="Gaussian limit", default=3000000, min=50000, max=6000000, description="Detail versus GPU memory, file size (about 250 MB per million) and viewport speed")
+    splat_sh_degree: IntProperty(name="View-dependent colour", default=3, min=0, max=3, update=lambda self, context: splat_viewer.redraw(),
+                                 description="Spherical-harmonic degree drawn in the viewport: 3 matches the trainer's previews, 0 is flat colour and lighter on the GPU")
+    splat_display_percent: IntProperty(name="Gaussians shown", default=100, min=1, max=100, subtype='PERCENTAGE', update=lambda self, context: splat_viewer.redraw(),
+                                       description="Draw only the most visible Gaussians for a lighter viewport on small GPUs")
+    splat_occlusion: BoolProperty(name="Behind scene objects", default=True, update=lambda self, context: splat_viewer.redraw(),
+                                  description="Hide the splat behind Blender objects; off draws it on top of everything")
     masking: BoolProperty(name="Exclude dynamic categories", default=True)
     mask_phrases: StringProperty(name="Categories", default="person,animal,vehicle,ball,balloon,gun,pet,car,bus")
     lens_mode: EnumProperty(name="Lens", items=[('auto', "Estimate and refine", "GeoCalib initialization followed by stock ViPE lens optimization"), ('fixed', "Known focal length (locked)", "Use a supplied focal length with a centered principal point and keep it fixed")], default='auto')
@@ -697,11 +703,14 @@ class VIPE_OT_train_splat(bpy.types.Operator):
         return {'FINISHED'}
 
 
+SPLAT_REPLACES = ('dense_environment_group', 'native_cloud_group')  # hidden while the splat is shown
+
+
 class VIPE_OT_view_splat(bpy.types.Operator):
     bl_idname = 'vipe_remote.view_splat'
     bl_label = 'Show Gaussian Splat'
-    bl_description = 'Load the trained splat under this job\'s ViPE alignment (KIRI 3DGS Render on Blender 5.1+, native splats on Blender 5.3+), or toggle it'
-    show: BoolProperty(default=True)
+    bl_description = "Draw the trained splat in the viewport under this job's ViPE alignment, or hide it. The dense environment and point cloud are hidden while it is shown"
+    show: BoolProperty(default=True, options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
@@ -709,55 +718,106 @@ class VIPE_OT_view_splat(bpy.types.Operator):
         return collection is not None and bool(collection.get('vipe_splat_ply'))
 
     def execute(self, context):
-        from .splat import import_correction, load_splat, show_as_splats
+        collection = job_collection(context)
+        path = Path(collection['vipe_splat_ply'])
+        obj = bpy.data.objects.get(collection.get('vipe_splat_viewer', ''))
+        if self.show and not path.is_file():
+            self.report({'ERROR'}, f'The downloaded splat is missing: {path}')
+            return {'CANCELLED'}
+        if obj is None and self.show:
+            # A light Empty: the viewer reads the PLY from disk, so nothing large goes into the .blend.
+            root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
+            group = next((c for c in collection.children if c.get('vipe_role') == 'splat_group'), None) or _child_collection(collection, '06 Gaussian splat', 'splat_group')
+            obj = bpy.data.objects.new(f"Gaussian splat {collection['vipe_job_id'][:8]}", None)
+            obj.empty_display_type, obj.empty_display_size = 'PLAIN_AXES', 0.2
+            group.objects.link(obj)
+            # The PLY is in the ViPE world, like the dense samples.
+            obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), Matrix.Identity(4)
+            obj['vipe_role'], obj['vipe_splat_ply'] = 'gaussian_splat', str(path)
+            collection['vipe_splat_viewer'] = obj.name
+        if obj is not None:
+            obj.hide_viewport = obj.hide_render = not self.show
+        layers = context.view_layer.layer_collection.children.get(collection.name)
+        hidden = json.loads(collection.get('vipe_splat_hid', '[]'))
+        if self.show:
+            for child in collection.children:
+                layer = layers.children.get(child.name) if layers else None
+                if child.get('vipe_role') in SPLAT_REPLACES and layer and not layer.hide_viewport:
+                    layer.hide_viewport = True
+                    hidden.append(child.name)
+            for name in json.loads(collection.get('vipe_splat_objects', '[]')):  # a KIRI copy is much heavier to draw
+                if bpy.data.objects.get(name):
+                    bpy.data.objects[name].hide_viewport = True
+        else:
+            for name in hidden:
+                if layers and layers.children.get(name):
+                    layers.children[name].hide_viewport = False
+            hidden = []
+        collection['vipe_splat_hid'] = json.dumps(sorted(set(hidden)))
+        splat_viewer.redraw()
+        return {'FINISHED'}
+
+
+class VIPE_OT_kiri_splat(bpy.types.Operator):
+    bl_idname = 'vipe_remote.kiri_splat'
+    bl_label = 'Open in KIRI 3DGS Render'
+    bl_description = "Import the splat into the KIRI 3DGS Render add-on for its editing, relighting and mesh-shadow tools (heavier to draw than Show Gaussian Splat)"
+
+    @classmethod
+    def poll(cls, context):
+        from .splat import kiri_available
+        collection = job_collection(context)
+        return collection is not None and bool(collection.get('vipe_splat_ply')) and kiri_available()
+
+    def execute(self, context):
+        from .splat import import_correction, kiri_import, show_as_splats
         collection = job_collection(context)
         objects = [bpy.data.objects.get(name) for name in json.loads(collection.get('vipe_splat_objects', '[]'))]
         objects = [o for o in objects if o is not None]
-        if objects:
+        if not objects:
+            path = Path(collection['vipe_splat_ply'])
+            root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
+            try:
+                objects = kiri_import(context, path)
+                correction = import_correction(objects[0], path)
+            except ValueError as exc:
+                for obj in locals().get('objects') or []:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                self.report({'ERROR'}, str(exc))
+                return {'CANCELLED'}
+            group = next((c for c in collection.children if c.get('vipe_role') == 'splat_group'), None) or _child_collection(collection, '06 Gaussian splat', 'splat_group')
             for obj in objects:
-                obj.hide_viewport = obj.hide_render = not self.show
-            return {'FINISHED'}
-        if not self.show:
-            return {'FINISHED'}
-        path = Path(collection['vipe_splat_ply'])
-        if not path.is_file():
-            self.report({'ERROR'}, f'The downloaded splat is missing: {path}')
-            return {'CANCELLED'}
-        root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
-        try:
-            objects = load_splat(context, path)
-            correction = import_correction(objects[0], path)
-        except ValueError as exc:
-            for obj in locals().get('objects') or []:
-                bpy.data.objects.remove(obj, do_unlink=True)
-            self.report({'ERROR'}, str(exc))
-            return {'CANCELLED'}
-        group = next((c for c in collection.children if c.get('vipe_role') == 'splat_group'), None) or _child_collection(collection, '06 Gaussian splat', 'splat_group')
+                for owner in list(obj.users_collection):
+                    owner.objects.unlink(obj)
+                group.objects.link(obj)
+                obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), correction
+                obj['vipe_role'] = 'kiri_splat'
+            objects[0].name = f"KIRI splat {collection['vipe_job_id'][:8]}"
+            collection['vipe_splat_objects'] = json.dumps([o.name for o in objects])
+            show_as_splats(context, objects[0])
         for obj in objects:
-            for owner in list(obj.users_collection):
-                owner.objects.unlink(obj)
-            group.objects.link(obj)
-            # The PLY is in the ViPE world, like the dense samples.
-            obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), correction
-            obj['vipe_role'] = 'gaussian_splat'
-        objects[0].name = f"Gaussian splat {collection['vipe_job_id'][:8]}"
-        collection['vipe_splat_objects'] = json.dumps([o.name for o in objects])
-        message = f'Loaded {objects[0].name}'
-        if show_as_splats(context, objects[0]):
-            # KIRI's splat material only shows in Material Preview or Rendered shading.
-            areas = [a for a in (context.screen.areas if context.screen else []) if a.type == 'VIEW_3D']
-            for area in areas:
-                if area.spaces.active.shading.type in {'SOLID', 'WIREFRAME'}:
-                    area.spaces.active.shading.type = 'MATERIAL'
-            message += '; viewport set to Material Preview (KIRI 3DGS Render tab: Show As Point Cloud is lighter on big splats)'
-        self.report({'INFO'}, message)
+            obj.hide_viewport = False
+        viewer = bpy.data.objects.get(collection.get('vipe_splat_viewer', ''))
+        if viewer is not None:
+            viewer.hide_viewport = True  # one splat at a time
+        # KIRI's splat material only shows in Material Preview or Rendered shading.
+        for area in (context.screen.areas if context.screen else []):
+            if area.type == 'VIEW_3D' and area.spaces.active.shading.type in {'SOLID', 'WIREFRAME'}:
+                area.spaces.active.shading.type = 'MATERIAL'
+        self.report({'INFO'}, f'{objects[0].name} is in KIRI 3DGS Render (N panel › 3DGS Render)')
         return {'FINISHED'}
 
 
 class VIPE_OT_open_splat(bpy.types.Operator):
     bl_idname = 'vipe_remote.open_splat'
     bl_label = 'Open Splat Output'
-    kind: EnumProperty(items=[('camera', 'Camera preview', ''), ('nearby', 'Nearby view', ''), ('masks', 'Training masks', ''), ('folder', 'Output folder', '')])
+    kind: EnumProperty(items=[('camera', 'Camera preview', "The trainer's render of the splat along the solved camera: how well it reproduces the shot"),
+                              ('nearby', 'Nearby view', "The same path shifted sideways (2.5% of the scene depth): how well the 3D holds up off the original camera"),
+                              ('masks', 'Training masks', 'The moving areas that training ignored'), ('folder', 'Output folder', '')])
+
+    @classmethod
+    def description(cls, context, properties):
+        return next(item.description for item in cls.bl_rna.properties['kind'].enum_items if item.identifier == properties.kind) or 'Open the splat output folder'
 
     def execute(self, context):
         collection = job_collection(context)
@@ -1229,6 +1289,7 @@ class VIPE_PT_worker(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_plate(_SubPanel, bpy.types.Panel):
     bl_label = 'Plate'
+    bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout, props = self.layout, context.scene.vipe_remote
         layout.enabled = not props.busy
@@ -1251,6 +1312,7 @@ class VIPE_PT_plate(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_lens(_SubPanel, bpy.types.Panel):
     bl_label = 'Lens'
+    bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout, props = self.layout, context.scene.vipe_remote
         layout.enabled = not props.busy
@@ -1284,6 +1346,7 @@ class VIPE_PT_solve(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_outputs(_SubPanel, bpy.types.Panel):
     bl_label = 'Outputs'
+    bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout, props = self.layout, context.scene.vipe_remote
         width = _wrap_width(context)
@@ -1307,6 +1370,7 @@ class VIPE_PT_outputs(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_results(_SubPanel, bpy.types.Panel):
     bl_label = 'Results'
+    bl_options = {'DEFAULT_CLOSED'}
     @classmethod
     def poll(cls, context):
         return job_collection(context) is not None
@@ -1361,17 +1425,26 @@ class VIPE_PT_splat(_SubPanel, bpy.types.Panel):
                 layout.prop(props, key)
         layout.operator('vipe_remote.train_splat', icon='RENDER_STILL')
         if collection.get('vipe_splat_directory'):
-            names = json.loads(collection.get('vipe_splat_objects', '[]'))
-            loaded = [bpy.data.objects.get(name) for name in names if bpy.data.objects.get(name)]
-            visible = bool(loaded) and not loaded[0].hide_viewport
+            viewer = bpy.data.objects.get(collection.get('vipe_splat_viewer', ''))
+            visible = viewer is not None and not viewer.hide_viewport
             layout.operator('vipe_remote.view_splat', text='Hide Gaussian Splat' if visible else 'Show Gaussian Splat', icon='HIDE_ON' if visible else 'OUTLINER_OB_POINTCLOUD').show = not visible
+            state = splat_viewer.status(collection['vipe_splat_ply']) if visible else ''
+            if state:
+                layout.label(text=state, icon='ERROR' if state.startswith('Could not') else 'TIME')
+            if visible:
+                display = layout.column(align=True)
+                display.prop(props, 'splat_sh_degree')
+                display.prop(props, 'splat_display_percent')
+                display.prop(props, 'splat_occlusion')
             row = layout.row(align=True)
             row.operator('vipe_remote.open_splat', text='Camera preview', icon='PLAY').kind = 'camera'
             row.operator('vipe_remote.open_splat', text='Nearby view', icon='PLAY').kind = 'nearby'
             row = layout.row(align=True)
             row.operator('vipe_remote.open_splat', text='Masks', icon='IMAGE_DATA').kind = 'masks'
             row.operator('vipe_remote.open_splat', text='Output folder', icon='FILE_FOLDER').kind = 'folder'
-        _hint(layout, 'Static scene only; add Dense Environment first. Quick is a preview; Quality takes longer and, for EXR plates, uploads a larger training plate. View the splat with the KIRI 3DGS Render add-on, or natively in Blender 5.3+.', width)
+            if VIPE_OT_kiri_splat.poll(context):
+                layout.operator('vipe_remote.kiri_splat', icon='SHADERFX')
+        _hint(layout, 'Static scene only; add Dense Environment first. Quick is a preview; Quality takes longer and, for EXR plates, uploads a larger training plate. The splat draws in the viewport only; the previews are the trainer\'s own renders.', width)
 
 
 class VIPE_PT_jobs(_SubPanel, bpy.types.Panel):
@@ -1419,9 +1492,10 @@ def _before_load(_):
     if bpy.app.timers.is_registered(_poll):
         bpy.app.timers.unregister(_poll)
     _log_buffers.clear()
+    splat_viewer.clear()
 
 
-CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_train_splat, VIPE_OT_view_splat, VIPE_OT_open_splat, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_splat, VIPE_PT_jobs, VIPE_PT_logs]
+CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_train_splat, VIPE_OT_view_splat, VIPE_OT_kiri_splat, VIPE_OT_open_splat, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_splat, VIPE_PT_jobs, VIPE_PT_logs]
 PANELS = [cls for cls in CLASSES if issubclass(cls, bpy.types.Panel)]
 
 
@@ -1432,9 +1506,11 @@ def register():
     bpy.types.WindowManager.vipe_jobs = CollectionProperty(type=ViPEJobItem)
     bpy.types.WindowManager.vipe_jobs_index = IntProperty(min=0)
     bpy.app.handlers.load_pre.append(_before_load)
+    splat_viewer.register()
 
 
 def unregister():
+    splat_viewer.unregister()
     _before_load(None)
     if _before_load in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_before_load)
