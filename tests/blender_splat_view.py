@@ -72,7 +72,8 @@ if kiri_available():
     assert bpy.ops.vipe_remote.kiri_splat() == {'FINISHED'}
     kiri = bpy.data.objects[json.loads(collection['vipe_splat_objects'])[0]]
     assert kiri.parent == root and kiri.get('vipe_role') == 'kiri_splat' and splat.hide_viewport
-    assert kiri.modifiers['KIRI_3DGS_Render_GN'].show_viewport and kiri.get('update_rot_to_cam'), "KIRI's splat display, not its black editing points"
+    assert bpy.context.view_layer.objects.active == kiri and kiri.select_get(), 'KIRI tools act on the active object'
+    assert not kiri.modifiers['KIRI_3DGS_Render_GN'].show_viewport, "left as KIRI's own Import PLY leaves it"
     placement(world(kiri, 20), 'KIRI')
     assert bpy.ops.vipe_remote.view_splat(show=True) == {'FINISHED'} and kiri.hide_viewport and not splat.hide_viewport
 print('PASS splat view; KIRI hand-off', 'tested' if kiri_available() else 'not installed')

@@ -44,9 +44,16 @@ The splat is viewport-only; it does not appear in F12 renders. **Camera preview*
 solved camera (how well the splat reproduces the shot); **Nearby view** shifts that path sideways by 2.5% of the scene
 depth (how well the 3D holds up away from the original camera).
 
+Loading reads the PLY in the background (about 5–8 s for a 650 MB Quality splat on the share); the viewport shows
+"Loading Gaussian splat… %" bottom-left until it draws, or the reason it could not load.
+
 **Open in KIRI 3DGS Render** (shown when that add-on is installed: 4.1.x on Blender 4.4, 5.1.0 on Blender 5.1/5.2)
-imports the same PLY into KIRI for its editing, relighting and mesh-shadow tools, switched to KIRI's splat display.
-It places the import under the alignment like the viewer. KIRI notes from testing (Ford 2.5M Gaussians, Linux):
+runs KIRI's own **Import PLY** on the job's splat, places it under the alignment (undoing KIRI's axis conversion so it
+sits on the solve), makes it the active object and opens the sidebar on KIRI's **3DGS Render** tab in Edit › Import,
+exactly where KIRI's import leaves you. From there use KIRI's tools (camera updates, Render mode, colour, modifiers,
+relighting, mesh shadows). The built-in viewer is hidden meanwhile; **Show Gaussian Splat** switches back. KIRI's
+import blocks Blender for about a minute on a 2.6M-Gaussian splat.
+KIRI notes from testing (Ford 2.5M Gaussians, Linux):
 - Import takes about a minute; KIRI's EEVEE display is approximate (camera-facing quads, grain or streaks near the
   camera) and the viewport is slow on multi-million splats. Its first display waits 30–60 s for EEVEE shaders.
 - KIRI's own GPU renderer (Render mode) failed on Linux (its shader directory is only set by other code paths) and,

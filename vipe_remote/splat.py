@@ -128,16 +128,33 @@ def kiri_import(context, path):
     return [obj] + [o for o in created if o is not obj]
 
 
-def show_as_splats(context, obj):
-    """KIRI imports in its point-editing display (bare vertices, black in Solid view); switch to camera-facing splats.
+def open_kiri_tab(context):
+    """Show KIRI 3DGS Render's sidebar tab in Edit mode at its Import step, as after KIRI's own Import PLY."""
+    props = getattr(context.scene, 'sna_dgs_scene_properties', None)
+    if props is not None:
+        if getattr(props, 'active_mode', 'Edit') != 'Edit':
+            props.active_mode = 'Edit'
+        if hasattr(props, 'edit_mode_menu'):
+            props.edit_mode_menu = 'Import'
+    import bpy
+    areas = [a for a in (context.screen.areas if context.screen else []) if a.type == 'VIEW_3D']
+    for area in areas:
+        area.spaces.active.show_region_ui = True
+        area.tag_redraw()
+    tries = [20]
 
-    KIRI 5.x calls the setting update_mode, 4.x active_object_update_mode; both act on the active object.
-    Returns True when the viewport needs Material Preview or Rendered shading to show the splat colours.
-    """
-    props = getattr(obj, 'sna_dgs_object_properties', None)
-    key = next((k for k in ('update_mode', 'active_object_update_mode') if props is not None and hasattr(props, k)), None)
-    if key is None:
-        return False
-    context.view_layer.objects.active = obj
-    setattr(props, key, 'Enable Camera Updates')
-    return True
+    def switch_tab():
+        # Blender accepts a sidebar tab only once the sidebar has drawn its tab list, so retry briefly.
+        pending = False
+        for area in areas:
+            region = next((r for r in area.regions if r.type == 'UI'), None)
+            try:
+                if region is not None and region.active_panel_category != '3DGS Render':
+                    region.active_panel_category = '3DGS Render'
+                    area.tag_redraw()
+            except (AttributeError, ReferenceError, TypeError, ValueError):
+                pending = True
+        tries[0] -= 1
+        return 0.1 if pending and tries[0] > 0 else None
+    if areas:
+        bpy.app.timers.register(switch_tab, first_interval=0.1)

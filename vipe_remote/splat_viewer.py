@@ -10,6 +10,7 @@ places the PLY's (ViPE world) coordinates, so it follows the job's alignment roo
 import os
 import threading
 
+import blf
 import bpy
 import gpu
 import numpy as np
@@ -129,7 +130,7 @@ void main() {
 _shaders = None
 _splats = {}  # PLY path -> _Splat
 _targets = {}  # viewport size -> (texture, framebuffer)
-_handle = None
+_handle = _text_handle = None
 _no_depth = None
 
 
@@ -189,14 +190,14 @@ class _Splat:
         self.path, self.mtime = path, os.path.getmtime(path)
         self.data = self.textures = self.error = None
         self.percent = self.ids = self.points = None
-        self.generation = 0
+        self.generation, self.loaded = 0, 0.0
         self.orders = {}
         self.loader = threading.Thread(target=self._load, daemon=True)
         self.loader.start()
 
     def _load(self):
         try:
-            self.data = splat_data.load_gaussians(self.path, pad=WIDTH)
+            self.data = splat_data.load_gaussians(self.path, pad=WIDTH, progress=lambda fraction: setattr(self, 'loaded', fraction))
         except Exception as exc:  # shown in the panel
             self.error = str(exc)
 
@@ -246,7 +247,7 @@ def status(path):
     if splat.error:
         return 'Could not load the splat: ' + splat.error
     if splat.textures is None:
-        return 'Loading Gaussian splat…'
+        return f'Loading Gaussian splat… {splat.loaded:.0%}'
     return ''
 
 
@@ -356,17 +357,46 @@ def clear():
     _targets.clear()
 
 
+def _draw_status():
+    """Loading progress or a load error in the viewport, so a splat that is not drawn yet is never silent."""
+    context = bpy.context
+    lines = []
+    for obj in context.view_layer.objects:
+        if obj.get('vipe_role') == ROLE and obj.get('vipe_splat_ply') and obj.visible_get():
+            splat = _splats.get(obj['vipe_splat_ply'])
+            if not os.path.isfile(obj['vipe_splat_ply']):
+                text = 'Could not load the splat: file not found ' + obj['vipe_splat_ply']
+            else:
+                text = status(obj['vipe_splat_ply']) if splat else 'Loading Gaussian splat…'
+            if text:
+                lines.append(f'{obj.name}: {text}')
+    if not lines:
+        return
+    scale = context.preferences.view.ui_scale
+    blf.size(0, 13 * scale)
+    blf.enable(0, blf.SHADOW)
+    blf.shadow(0, 5, 0.0, 0.0, 0.0, 1.0)
+    for i, line in enumerate(lines):
+        error = 'Could not load' in line
+        blf.color(0, 1.0, 0.45 if error else 1.0, 0.35 if error else 1.0, 1.0)
+        blf.position(0, 20 * scale, (60 + 20 * i) * scale, 0)
+        blf.draw(0, line)
+    blf.disable(0, blf.SHADOW)
+
+
 def register():
-    global _handle
+    global _handle, _text_handle
     if _handle is None and not bpy.app.background:
         _handle = bpy.types.SpaceView3D.draw_handler_add(_draw, (), 'WINDOW', 'POST_VIEW')
+        _text_handle = bpy.types.SpaceView3D.draw_handler_add(_draw_status, (), 'WINDOW', 'POST_PIXEL')
 
 
 def unregister():
-    global _handle, _shaders, _no_depth
+    global _handle, _text_handle, _shaders, _no_depth
     if _handle is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handle, 'WINDOW')
-        _handle = None
+        bpy.types.SpaceView3D.draw_handler_remove(_text_handle, 'WINDOW')
+        _handle = _text_handle = None
     if bpy.app.timers.is_registered(_poll):
         bpy.app.timers.unregister(_poll)
     clear()

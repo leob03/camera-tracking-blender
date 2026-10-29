@@ -39,7 +39,7 @@ def quaternion_matrices(q):
     ], axis=1).reshape(-1, 3, 3)
 
 
-def load_gaussians(path, pad=1):
+def load_gaussians(path, pad=1, progress=lambda fraction: None):
     """Read a 3DGS PLY (INRIA layout, as LichtFeld exports it) into arrays for the GPU.
 
     Returns count, sh_degree, positions (N, 3), importance (N,), base (P, 3, 4) and sh (P, 12, 4), all float32,
@@ -81,6 +81,7 @@ def load_gaussians(path, pad=1):
         if per_channel:
             channels = pick(chunk, rest).reshape(-1, 3, per_channel)
             sh[start:end, 3:3 + 3 * per_channel] = channels.transpose(0, 2, 1).reshape(-1, 3 * per_channel)
+        progress(end / count)
     del raw
     return dict(count=count, sh_degree=degree, positions=positions, importance=importance, base=base, sh=sh.reshape(padded, SH_TEXELS, 4))
 

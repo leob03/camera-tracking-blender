@@ -755,13 +755,16 @@ class VIPE_OT_view_splat(bpy.types.Operator):
             hidden = []
         collection['vipe_splat_hid'] = json.dumps(sorted(set(hidden)))
         splat_viewer.redraw()
+        if self.show and not splat_viewer.gaussian_count(path):
+            self.report({'INFO'}, f'Loading the Gaussian splat ({path.stat().st_size / 1e6:.0f} MB); progress shows in the viewport')
         return {'FINISHED'}
 
 
 class VIPE_OT_kiri_splat(bpy.types.Operator):
     bl_idname = 'vipe_remote.kiri_splat'
     bl_label = 'Open in KIRI 3DGS Render'
-    bl_description = "Import the splat into the KIRI 3DGS Render add-on for its editing, relighting and mesh-shadow tools (heavier to draw than Show Gaussian Splat)"
+    bl_description = ("Run KIRI 3DGS Render's Import PLY on this job's splat, place it under the ViPE alignment and open KIRI's "
+                      "3DGS Render tab, for its editing, relighting and mesh-shadow tools")
 
     @classmethod
     def poll(cls, context):
@@ -770,7 +773,7 @@ class VIPE_OT_kiri_splat(bpy.types.Operator):
         return collection is not None and bool(collection.get('vipe_splat_ply')) and kiri_available()
 
     def execute(self, context):
-        from .splat import import_correction, kiri_import, show_as_splats
+        from .splat import import_correction, kiri_import, open_kiri_tab
         collection = job_collection(context)
         objects = [bpy.data.objects.get(name) for name in json.loads(collection.get('vipe_splat_objects', '[]'))]
         objects = [o for o in objects if o is not None]
@@ -790,21 +793,24 @@ class VIPE_OT_kiri_splat(bpy.types.Operator):
                 for owner in list(obj.users_collection):
                     owner.objects.unlink(obj)
                 group.objects.link(obj)
+                # KIRI converts axes on import; undo that under the alignment so the splat sits on the solve.
                 obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), correction
                 obj['vipe_role'] = 'kiri_splat'
             objects[0].name = f"KIRI splat {collection['vipe_job_id'][:8]}"
             collection['vipe_splat_objects'] = json.dumps([o.name for o in objects])
-            show_as_splats(context, objects[0])
+        for obj in context.selected_objects:
+            obj.select_set(False)
         for obj in objects:
             obj.hide_viewport = False
+        objects[0].hide_set(False)
+        objects[0].select_set(True)
+        context.view_layer.objects.active = objects[0]  # KIRI's tools act on the active object
         viewer = bpy.data.objects.get(collection.get('vipe_splat_viewer', ''))
         if viewer is not None:
             viewer.hide_viewport = True  # one splat at a time
-        # KIRI's splat material only shows in Material Preview or Rendered shading.
-        for area in (context.screen.areas if context.screen else []):
-            if area.type == 'VIEW_3D' and area.spaces.active.shading.type in {'SOLID', 'WIREFRAME'}:
-                area.spaces.active.shading.type = 'MATERIAL'
-        self.report({'INFO'}, f'{objects[0].name} is in KIRI 3DGS Render (N panel › 3DGS Render)')
+        open_kiri_tab(context)
+        self.report({'INFO'}, f"{objects[0].name} is selected in KIRI 3DGS Render (sidebar › 3DGS Render). KIRI shows it as editing points; "
+                              "use its Render tools or Material Preview to see the splat")
         return {'FINISHED'}
 
 

@@ -78,6 +78,12 @@ def steps():
     scene.camera.data.show_background_images = False
     yield 0.5
     shot('viewer_camera_splat')
+    for shading in ('MATERIAL', 'RENDERED', 'WIREFRAME', 'SOLID'):  # artists switch modes; the splat must draw in all of them
+        space.shading.type = shading
+        for _ in range(20 if shading != 'SOLID' else 1):  # EEVEE compiles shaders and converges first
+            redraw_ms(1)
+            yield 0.2
+        shot(f'viewer_camera_{shading.lower()}')
     for degree in (0, 3):
         scene.vipe_remote.splat_sh_degree = degree
         results[f'redraw_ms_sh{degree}'] = redraw_ms()
