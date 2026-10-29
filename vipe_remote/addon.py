@@ -706,6 +706,22 @@ class VIPE_OT_train_splat(bpy.types.Operator):
 SPLAT_REPLACES = ('dense_environment_group', 'native_cloud_group')  # hidden while the splat is shown
 
 
+def _splat_group(context, collection):
+    """The job's '06 Gaussian splat' collection, recreated if it was deleted and included in the view layer."""
+    group = next((c for c in collection.children if c.get('vipe_role') == 'splat_group'), None) or _child_collection(collection, '06 Gaussian splat', 'splat_group')
+    layers = context.view_layer.layer_collection.children.get(collection.name)
+    layer = layers.children.get(group.name) if layers else None
+    if layer is not None:
+        layer.exclude = layer.hide_viewport = False
+    return group
+
+
+def _kiri_objects(collection, path=None):
+    """This job's KIRI copies, or only those of the splat at path. Scenes from earlier builds also listed other objects here."""
+    objects = [bpy.data.objects.get(name) for name in json.loads(collection.get('vipe_splat_objects', '[]'))]
+    return [o for o in objects if o is not None and o.get('vipe_role') == 'kiri_splat' and (path is None or o.get('vipe_splat_ply') == str(path))]
+
+
 class VIPE_OT_view_splat(bpy.types.Operator):
     bl_idname = 'vipe_remote.view_splat'
     bl_label = 'Show Gaussian Splat'
@@ -724,20 +740,27 @@ class VIPE_OT_view_splat(bpy.types.Operator):
         if self.show and not path.is_file():
             self.report({'ERROR'}, f'The downloaded splat is missing: {path}')
             return {'CANCELLED'}
-        if obj is None and self.show:
-            # A light Empty: the viewer reads the PLY from disk, so nothing large goes into the .blend.
-            root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
-            group = next((c for c in collection.children if c.get('vipe_role') == 'splat_group'), None) or _child_collection(collection, '06 Gaussian splat', 'splat_group')
-            obj = bpy.data.objects.new(f"Gaussian splat {collection['vipe_job_id'][:8]}", None)
-            obj.empty_display_type, obj.empty_display_size = 'PLAIN_AXES', 0.2
-            group.objects.link(obj)
+        layers = context.view_layer.layer_collection.children.get(collection.name)
+        if self.show:
+            group = _splat_group(context, collection)
+            if obj is None or obj.get('vipe_role') != 'gaussian_splat':
+                # A light Empty: the viewer reads the PLY from disk, so nothing large goes into the .blend.
+                obj = bpy.data.objects.new(f"Gaussian splat {collection['vipe_job_id'][:8]}", None)
+                obj.empty_display_type, obj.empty_display_size = 'PLAIN_AXES', 0.2
+                obj['vipe_role'] = 'gaussian_splat'
+                collection['vipe_splat_viewer'] = obj.name
+            if group not in obj.users_collection:  # new, or its collection was deleted and it fell back into the job collection
+                for owner in list(obj.users_collection):
+                    owner.objects.unlink(obj)
+                group.objects.link(obj)
             # The PLY is in the ViPE world, like the dense samples.
+            root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
             obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), Matrix.Identity(4)
-            obj['vipe_role'], obj['vipe_splat_ply'] = 'gaussian_splat', str(path)
-            collection['vipe_splat_viewer'] = obj.name
+            obj['vipe_splat_ply'] = str(path)  # a retrained splat replaces the one shown before
         if obj is not None:
             obj.hide_viewport = obj.hide_render = not self.show
-        layers = context.view_layer.layer_collection.children.get(collection.name)
+            if self.show:
+                obj.hide_set(False)
         hidden = json.loads(collection.get('vipe_splat_hid', '[]'))
         if self.show:
             for child in collection.children:
@@ -745,9 +768,8 @@ class VIPE_OT_view_splat(bpy.types.Operator):
                 if child.get('vipe_role') in SPLAT_REPLACES and layer and not layer.hide_viewport:
                     layer.hide_viewport = True
                     hidden.append(child.name)
-            for name in json.loads(collection.get('vipe_splat_objects', '[]')):  # a KIRI copy is much heavier to draw
-                if bpy.data.objects.get(name):
-                    bpy.data.objects[name].hide_viewport = True
+            for kiri in _kiri_objects(collection):  # a KIRI copy is much heavier to draw
+                kiri.hide_viewport = True
         else:
             for name in hidden:
                 if layers and layers.children.get(name):
@@ -775,10 +797,15 @@ class VIPE_OT_kiri_splat(bpy.types.Operator):
     def execute(self, context):
         from .splat import import_correction, kiri_import, open_kiri_tab
         collection = job_collection(context)
-        objects = [bpy.data.objects.get(name) for name in json.loads(collection.get('vipe_splat_objects', '[]'))]
-        objects = [o for o in objects if o is not None]
+        path = Path(collection['vipe_splat_ply'])
+        objects = _kiri_objects(collection, path)
         if not objects:
-            path = Path(collection['vipe_splat_ply'])
+            if not path.is_file():
+                self.report({'ERROR'}, f'The downloaded splat is missing: {path}')
+                return {'CANCELLED'}
+            earlier = _kiri_objects(collection)  # copies of an earlier training stay, hidden
+            for obj in earlier:
+                obj.hide_viewport = True
             root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
             try:
                 objects = kiri_import(context, path)
@@ -788,16 +815,16 @@ class VIPE_OT_kiri_splat(bpy.types.Operator):
                     bpy.data.objects.remove(obj, do_unlink=True)
                 self.report({'ERROR'}, str(exc))
                 return {'CANCELLED'}
-            group = next((c for c in collection.children if c.get('vipe_role') == 'splat_group'), None) or _child_collection(collection, '06 Gaussian splat', 'splat_group')
+            group = _splat_group(context, collection)
             for obj in objects:
                 for owner in list(obj.users_collection):
                     owner.objects.unlink(obj)
                 group.objects.link(obj)
                 # KIRI converts axes on import; undo that under the alignment so the splat sits on the solve.
                 obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), correction
-                obj['vipe_role'] = 'kiri_splat'
-            objects[0].name = f"KIRI splat {collection['vipe_job_id'][:8]}"
-            collection['vipe_splat_objects'] = json.dumps([o.name for o in objects])
+                obj['vipe_role'], obj['vipe_splat_ply'] = 'kiri_splat', str(path)
+            objects[0].name = f"KIRI splat {collection.get('vipe_splat_job_id', collection['vipe_job_id'])[:8]}"
+            collection['vipe_splat_objects'] = json.dumps([o.name for o in earlier + objects])
         for obj in context.selected_objects:
             obj.select_set(False)
         for obj in objects:

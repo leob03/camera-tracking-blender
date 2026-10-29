@@ -56,8 +56,12 @@ import blocks Blender for about a minute on a 2.6M-Gaussian splat.
 KIRI notes from testing (Ford 2.5M Gaussians, Linux):
 - Import takes about a minute; KIRI's EEVEE display is approximate (camera-facing quads, grain or streaks near the
   camera) and the viewport is slow on multi-million splats. Its first display waits 30–60 s for EEVEE shaders.
-- KIRI's own GPU renderer (Render mode) failed on Linux (its shader directory is only set by other code paths) and,
-  once its shaders were loaded, used more than 14 GB of RAM: it fills its GPU textures through Python lists.
+- KIRI's own GPU renderer (Render mode) draws nothing until a proxy exists, and switching to Render hides the KIRI
+  mesh ("Toggle visibility on menu change"), which Create Proxy needs visible. So: Render › Create, unhide the
+  KIRI splat (Alt+H) and make it active, **Create Proxy From Visible Active Object**. Render › Render writes final
+  frames to KIRI's output folder; it does not draw in the viewport. Works on Blender 5.2 with KIRI 5.1.0 (1M
+  Gaussians: 9 s, +1.3 GB RAM; its colours are noisier than the built-in viewer). On Ford (2.5M) an earlier session
+  failed to find its shaders and then used more than 14 GB of RAM: it fills its GPU textures through Python lists.
 - KIRI stores the whole Gaussian array in the `.blend` (about 240 MB per million Gaussians).
 
 ## Worker setup

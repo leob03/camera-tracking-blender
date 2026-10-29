@@ -83,7 +83,7 @@ def build_marker_geometry(marker_collection, root):
 
 def set_markers_in_render(collection, enabled):
     """Show or hide static-track markers and review crosses in renders."""
-    for obj in collection.all_objects:
+    for obj in list(collection.all_objects):  # changing hide_render rebuilds all_objects on Blender 5.2, mid-loop
         if obj.get('vipe_role') in (MARKER_ROLE, 'review_cross', 'review_cross_part') or (obj.parent and obj.parent.get('vipe_role') == 'review_cross'):
             obj.hide_render = not enabled
     collection['vipe_markers_in_render'] = enabled

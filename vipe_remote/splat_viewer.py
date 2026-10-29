@@ -291,6 +291,9 @@ def _target(width, height):
 def _draw():
     global _shaders, _no_depth
     context = bpy.context
+    wanted = {o.get('vipe_splat_ply') for o in bpy.data.objects if o.get('vipe_role') == ROLE}
+    for stale in [path for path in _splats if path not in wanted]:
+        del _splats[stale]  # e.g. a retrained splat replaced it; hidden viewers keep theirs for an instant Show
     objects = [o for o in context.view_layer.objects if o.get('vipe_role') == ROLE and o.get('vipe_splat_ply') and o.visible_get()]
     if not objects:
         return

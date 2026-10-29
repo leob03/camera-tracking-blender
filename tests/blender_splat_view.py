@@ -43,6 +43,18 @@ assert bpy.ops.vipe_remote.view_splat(show=False) == {'FINISHED'} and splat.hide
 assert not layers.children[dense.name].hide_viewport, 'hiding the splat brings the dense environment back'
 assert bpy.ops.vipe_remote.view_splat(show=True) == {'FINISHED'} and not splat.hide_viewport and len(bpy.data.objects) == before + 1
 
+# A scene from an earlier build after a retrain: its KIRI list named the viewer, the artist deleted '06 Gaussian splat'
+# (the Empty falls back into the job collection) and the Empty still reads the previous training's PLY.
+collection['vipe_splat_objects'] = json.dumps([splat.name])
+group = splat.users_collection[0]
+collection.objects.link(splat)
+bpy.data.collections.remove(group)
+splat['vipe_splat_ply'], splat.hide_viewport = '/previous/training/scene.ply', True
+assert bpy.ops.vipe_remote.view_splat(show=True) == {'FINISHED'}
+assert not splat.hide_viewport and splat.visible_get(), 'Show must not hide its own viewer'
+assert [c.get('vipe_role') for c in splat.users_collection] == ['splat_group'] and splat['vipe_splat_ply'] == collection['vipe_splat_ply']
+assert len(bpy.data.objects) == before + 1
+
 
 def world(obj, step):
     data = obj.data
