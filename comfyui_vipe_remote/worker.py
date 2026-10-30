@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from fractions import Fraction
 import shutil
 import subprocess
 import signal
@@ -14,7 +15,7 @@ import zipfile
 
 
 # Bump when the camera stage changes, so older solves are no longer reused.
-SOLVE_RECIPE = 1
+SOLVE_RECIPE = 2
 # Kept by every camera solve so later jobs can add review witnesses or dense geometry without solving again.
 SOLVE_STATE = ['plate.mp4', 'native_points.npz', 'native_slam_map.pt', 'depth_context.npz', 'solve_masks.zip', 'camera_manifest.json']
 
@@ -115,19 +116,81 @@ def digest(path):
     return h.hexdigest()
 
 
-def probe_video(path, ffprobe):
-    command = [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_streams", "-of", "json", str(path)]
-    info = json.loads(subprocess.check_output(command))["streams"][0]
+def decoded_video_info(data):
+    """Use displayed frames, respecting container edit lists, for indexing and timing."""
+    info = dict(data["streams"][0])
+    frames = data.get("frames", [])
+    if not frames:
+        raise ValueError("The video contains no decodable display frames.")
+    info["reported_nb_frames"] = info.get("nb_frames", "N/A")
+    info["reported_avg_frame_rate"] = info.get("avg_frame_rate", "0/0")
+    info["nb_frames"] = str(len(frames))
+    info["frame_count_method"] = "decoded_display_frames"
+    info["frame_rate_method"] = "average_rate_normalization"
+    rates = {}
+    for key in ("avg_frame_rate", "r_frame_rate"):
+        try:
+            rate = Fraction(info.get(key, "0/0"))
+            if rate > 0:
+                rates[key] = rate
+        except (ValueError, TypeError, ZeroDivisionError):
+            pass
+    rate = rates.get("avg_frame_rate", rates.get("r_frame_rate"))
+    if rate is None:
+        raise ValueError("The video has no usable frame rate.")
+    # r_frame_rate can itself be misleading for variable-rate clips. Use it only
+    # when every displayed-frame interval agrees, allowing timestamp quantization.
+    try:
+        ticks = [int(frame["best_effort_timestamp"]) for frame in frames]
+        time_base = Fraction(info["time_base"])
+        deltas = [b - a for a, b in zip(ticks, ticks[1:])]
+        candidate = rates.get("r_frame_rate")
+        if candidate and time_base > 0 and deltas and min(deltas) > 0:
+            expected_ticks = 1 / (candidate * time_base)
+            if (len(deltas) >= 2 and all(abs(delta - expected_ticks) <= 1 for delta in deltas)
+                    and abs(sum(deltas) - len(deltas) * expected_ticks) <= 1):
+                rate = candidate
+                info["frame_rate_method"] = "decoded_constant_cadence"
+    except (KeyError, ValueError, TypeError, ZeroDivisionError):
+        pass
+    info["avg_frame_rate"] = str(rate)
+    return info
+
+
+def probe_video(path, ffprobe, *, decode_frames=False):
+    command = [ffprobe, "-v", "error", "-threads", "2", "-select_streams", "v:0", "-show_streams"]
+    if decode_frames:
+        command += ["-show_frames", "-show_entries", "stream:frame=best_effort_timestamp"]
+    command += ["-of", "json", str(path)]
+    data = json.loads(subprocess.check_output(command))
+    if not data.get("streams"):
+        raise ValueError("The source has no video stream.")
+    if decode_frames:
+        return decoded_video_info(data)
+    info = data["streams"][0]
     if info.get("nb_frames", "N/A") == "N/A":
-        count = json.loads(subprocess.check_output([ffprobe, "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "json", str(path)]))
+        count = json.loads(subprocess.check_output([ffprobe, "-v", "error", "-threads", "2", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "json", str(path)]))
         info["nb_frames"] = count["streams"][0]["nb_read_frames"]
     return info
+
+
+def prepare_plate(source, plate, cfg, first, end, fps, width, height):
+    """Retain one output frame per selected display frame, with exact rational timing."""
+    fps = Fraction(fps)
+    time_base = f"{fps.denominator}/{fps.numerator}"
+    filters = f"trim=start_frame={first}:end_frame={end},settb=expr={time_base},setpts=N,scale={width}:{height}:flags=area"
+    subprocess.run([cfg["ffmpeg"], "-v", "error", "-threads", "2", "-noautorotate", "-i", str(source), "-map", "0:v:0", "-vf", filters, "-an", "-fps_mode", "passthrough", "-enc_time_base", time_base, "-frames:v", str(end - first), "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "16", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(plate)], check=True)
+    prepared = probe_video(plate, cfg["ffprobe"], decode_frames=True)
+    if int(prepared["nb_frames"]) != end - first:
+        raise ValueError(f"Video preparation produced {prepared['nb_frames']} decoded frames; expected {end - first} for source frames {first + 1}–{end}.")
+    if Fraction(prepared["avg_frame_rate"]) != fps:
+        raise ValueError(f"Video preparation changed the frame rate from {fps} to {prepared['avg_frame_rate']} fps.")
+    return prepared
 
 
 def solve(request_path, config_path):
     import numpy as np
     import torch
-    from fractions import Fraction
     from hydra import compose, initialize_config_dir
     from omegaconf import OmegaConf
     from vipe.pipeline import make_pipeline
@@ -146,7 +209,8 @@ def solve(request_path, config_path):
     write_status(work, "running", "Preparing video", 5)
     if digest(source) != request["source_sha256"]:
         raise ValueError("Uploaded video checksum changed; upload the plate again.")
-    info = probe_video(source, cfg["ffprobe"])
+    info = probe_video(source, cfg["ffprobe"], decode_frames=True)
+    print(f"[ViPE] Video: {info['nb_frames']} decoded display frames at {info['avg_frame_rate']} fps; container reports {info['reported_nb_frames']} frames at {info['reported_avg_frame_rate']} fps.", flush=True)
     width, height = int(info["width"]), int(info["height"])
     fps = Fraction(info["avg_frame_rate"])
     if fps <= 0:
@@ -176,10 +240,7 @@ def solve(request_path, config_path):
     # rounding of the processing size never invents a pixel aspect.
     kscale = np.array([sx, sx, sx, sy])
     plate = work / "plate.mp4"
-    subprocess.run([cfg["ffmpeg"], "-v", "error", "-threads", "2", "-noautorotate", "-i", str(source), "-vf", f"trim=start_frame={first}:end_frame={end},setpts=N/(({fps})*TB),scale={process_w}:{process_h}:flags=area", "-an", "-r", str(fps), "-frames:v", str(count), "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "16", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(plate)], check=True)
-    prepared = probe_video(plate, cfg["ffprobe"])
-    if int(prepared["nb_frames"]) != count:
-        raise ValueError("Video preparation did not preserve the selected frame count.")
+    prepare_plate(source, plate, cfg, first, end, fps, process_w, process_h)
     torch.set_num_threads(cfg.get("cpu_threads", 2))
     if not torch.cuda.is_available():
         raise RuntimeError("The ViPE worker has no usable CUDA GPU.")
@@ -267,6 +328,7 @@ def solve(request_path, config_path):
             raw = values.detach().cpu().numpy().reshape(-1)
             stages[name] = (raw[:4] * kscale).tolist() + raw[4:5].tolist()
     manifest = {"schema": "vipe-camera-bundle", "version": 1, "job_id": request["job_id"], "source": {"name": request["source_name"], "sha256": request.get("identity_sha256", request["source_sha256"]), **({"kind": "image_sequence", "first_frame": request["plate"]["first_frame"], "colorspace": request["plate"].get("colorspace", ""), "pattern": request["plate"].get("pattern", "")} if request.get("plate") else {}), "width": plate_w, "height": plate_h, "frame_count": total, "fps_num": fps.numerator, "fps_den": fps.denominator, **({"upload_width": width, "upload_height": height} if (plate_w, plate_h) != (width, height) else {})}, "selection": {"first_source_frame": first, "last_source_frame": end - 1, "count": count}, "camera": {"file": "camera.npz", "model": "PINHOLE_UNDISTORTED" if distortion else "PINHOLE", "convention": "opencv_camera_to_world", "intrinsics_units": "original_source_pixels", "distortion": [], **({"lens_distortion": distortion} if distortion else {}), "world_scale": "ViPE estimated scale; not surveyed"}, "cloud": {"file": "cloud.npz", "kind": "native_post_ba_slam_map", "point_count": point_count, "eligible_point_count": eligible, "filtering": "ViPE depth consistency and solve masks; no additional DeepLab filter", "sampling": "evenly spaced source point IDs; no score ranking"}, "settings": settings, "processing": {"width": process_w, "height": process_h, "dense_depth_computed": False, "backend": "stock", "camera_model": "mei" if distortion else "pinhole", "lens_stages_original_pixels": stages}, "files": {name: {"sha256": digest(output / name), "bytes": (output / name).stat().st_size} for name in ["camera.npz", "cloud.npz"]}}
+    manifest["processing"]["video_preparation"] = {key: info[key] for key in ("reported_nb_frames", "reported_avg_frame_rate", "frame_count_method", "frame_rate_method")}
     (output / "result.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (work / "camera_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 

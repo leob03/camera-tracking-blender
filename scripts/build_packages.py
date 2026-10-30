@@ -15,7 +15,7 @@ def build():
     output.mkdir(exist_ok=True)
     receipt = {}
     for package, names in PACKAGES.items():
-        version = '0.5.0' if package == 'comfyui_vipe_remote' else '0.6.0'
+        version = '0.5.1' if package == 'comfyui_vipe_remote' else '0.6.0'
         destination = output / (package + '-' + version + '.zip')
         with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as archive:
             for name in names:
