@@ -33,7 +33,7 @@ Build the installable ZIPs with a normal Python 3 interpreter:
 python scripts/build_packages.py
 ```
 
-Install `dist/vipe_remote-0.6.0.zip` in Blender. The separate `dist/comfyui_vipe_remote-0.5.0.zip` belongs on the ComfyUI worker. Open `workflows/ViPE Camera and Native Cloud.json` to test directly in ComfyUI.
+Install `dist/vipe_remote-0.6.0.zip` in Blender. The separate `dist/comfyui_vipe_remote-0.5.1.zip` belongs on the ComfyUI worker. Open `workflows/ViPE Camera and Native Cloud.json` to test directly in ComfyUI.
 
 ## Scope
 

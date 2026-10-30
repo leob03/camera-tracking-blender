@@ -1,5 +1,12 @@
 # Changes
 
+## ComfyUI node pack 0.5.1
+
+- Fix preparation failures on MP4s whose stored sample count differs from the frames exposed by their playback edit list. Source ranges now use decoded display frames.
+- Verify constant cadence from decoded timestamps before using the nominal frame rate. Preserve exact rational timing and one prepared frame per selected source frame; retain count and rate guards.
+- Record the original metadata and preparation method in the result. Bump the solve-cache recipe so a prior solve with different frame indexing or timing is not reused.
+- Validated the affected hand_signs clip: 338 stored samples, 323 displayed frames at 60 fps; full and trimmed preparation passed. Fractional-rate tests verified both timing and selected frame identity.
+
 ## Blender add-on 0.6.0 / ComfyUI node pack 0.5.0
 
 - **Train Gaussian Environment** extends a completed dense job using LichtFeld on the worker. Uses frozen ViPE cameras, retained motion masks and filtered dense initialization points plus the native map; no new camera solve.
