@@ -10,6 +10,8 @@ Use the [machine-readable manifest](../provenance/model-manifest.json) for exact
 | Above + review crosses (current defaults) | 3.204 |
 | Above + dense environment (all features) | 4.040 |
 
+Optional Gaussian splat training adds **no model files**; it needs the native LichtFeld trainer described in [Gaussian splats](GAUSSIAN_SPLATS.md#worker-setup-and-production-deployment).
+
 ## Downloads by stage
 
 Download only the listed variants. Direct weight links follow below; pinned Hugging Face auxiliary-file links are in the manifest. Google Drive links are the file IDs used by the reviewed ViPE loaders; use gdown or the Drive download UI in the connected preparation environment and verify the resulting checksum.

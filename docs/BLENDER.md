@@ -3,7 +3,7 @@
 ## Install
 
 1. Build the packages, or obtain the built add-on ZIP from the project maintainer.
-2. In Blender 4.2, open Preferences → Add-ons → Install from Disk. Select `vipe_remote-0.4.1.zip` and enable **ViPE Remote Tracking**.
+2. In Blender 5.2 LTS or 4.4, open Preferences → Add-ons → Install from Disk. Select `vipe_remote-0.6.0.zip` and enable **ViPE Remote Tracking**.
 3. In the 3D View sidebar (N), open **ViPE Remote → Worker**.
 4. Enter the worker URL and click **Check Connection**. The main panel shows *Worker connected*, *Worker check failed* or *Worker not checked* for the current URL; the refresh button beside it checks again. `127.0.0.1` refers to the computer running Blender. Use your worker address, gateway or SSH tunnel for a different computer.
 
@@ -13,7 +13,7 @@ No pip or CUDA installation is required in Blender. The optional Bearer token is
 
 The **ViPE Remote Tracking** panel holds the connection indicator, **Submit Tracking Job** / **Cancel Job** (**Stop Download** while downloading), the status, a progress bar and the elapsed time. While a job runs, a checklist marks each stage done, current or pending: Upload, Queue, Prepare, Camera solve, Review witnesses and Dense (when enabled), Package, Download, Import. Live worker detail (for example a SLAM pass percentage) appears under the current stage.
 
-Sub-panels, which can be collapsed or reordered: **Worker** (closed), **Plate**, **Lens**, **Solve** (closed), **Outputs**, **Results** (only when the selected job is in the scene), **Jobs** (closed) and **Logs** (closed). Settings are locked while a request runs.
+Sub-panels, which can be collapsed or reordered, all start closed: **Worker**, **Plate**, **Lens**, **Solve**, **Outputs**, **Results** and **Gaussian Splat** (only when the selected job is in the scene), **Jobs** and **Logs**. Settings are locked while a request runs.
 
 ## Submit
 
@@ -39,6 +39,10 @@ For the selected job: frames, focal length in mm at the filmback and in pixels, 
 - **Show / Hide Dense Environment** toggles the dense geometry. Show switches to Material Preview and frames it; Hide returns to Solid shading and the camera view.
 - **Export to Nuke…** writes a Nuke script and its data to a chosen folder and reports any warnings.
 - **Scene alignment** moves only the job's alignment parent, so the camera and points stay consistent. Select markers in Object Mode, or vertices (for example native cloud points) in Edit Mode. **Set Floor** fits a plane through 3+ points and makes it Z = 0 with its centroid at the origin and the camera above. **Set Origin** moves the centroid of the selection to the origin. **Set Scale** scales about the origin so two points are the entered distance apart. **Set X Axis** rotates about Z so the direction from the other point to the active point is +X. **Reset Alignment** restores the imported transform. All are undoable.
+
+## Gaussian splats
+
+After a dense environment, the **Gaussian Splat** sub-panel trains a static splat on the worker (**Quick preview** or **Quality**). **Show / Hide Gaussian Splat** draws it in the viewport on the solve, hiding the dense environment and point cloud meanwhile; **Camera preview** and **Nearby view** play the trainer's renders; **Open in KIRI 3DGS Render** hands it to KIRI for editing and relighting. See [Gaussian splats](GAUSSIAN_SPLATS.md).
 
 Use constant-frame-rate square-pixel movies with orientation baked into the pixels. Check initial/final lens values in the panel and full manifest text block.
 

@@ -27,7 +27,7 @@ Preflight checks interfaces and configured files. A passing preflight is not an 
 python scripts/build_packages.py
 ```
 
-Extract `dist/comfyui_vipe_remote-0.4.1.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
+Extract `dist/comfyui_vipe_remote-0.5.0.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
 
 Set `VIPE_WORKER_CONFIG` in the ComfyUI server environment, then restart ComfyUI:
 
@@ -37,6 +37,8 @@ export VIPE_WORKER_CONFIG=/opt/camera-tracking/worker-config.json
 ```
 
 Use your normal fork launch arguments for base/input/output/user directories and node allowlists. The example runs the controller on CPU; the ViPE child process still uses CUDA. It is not necessary to install ViPE model packages in ComfyUI's Python environment. This node itself uses the standard library plus ComfyUI's existing aiohttp and APIs.
+
+Optional Gaussian splat training adds no Python packages or models; it needs a native LichtFeld build and one worker JSON field. See [Gaussian splats → Worker setup and production deployment](GAUSSIAN_SPLATS.md#worker-setup-and-production-deployment).
 
 Confirm `GET /vipe/capabilities`, open the supplied workflow in the browser, upload a movie, and run it. Try 48 frames at 640 pixels for connectivity, then a full shot at 1280 for review. Explicitly test witness off/on and dense reconstruction off/on.
 

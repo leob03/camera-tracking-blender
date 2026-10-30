@@ -9,6 +9,7 @@ Prepare in an Internet-connected build environment:
 3. FFmpeg, FFprobe and runtime libraries.
 4. Complete resolved model caches, including configuration/tokenizer/backbone files, licenses and checksums. Do not leave symlinks pointing outside the image.
 5. Writable container-local input, output, scratch and cache paths; read-only packaged model directories where supported.
+6. Optional Gaussian training: a LichtFeld Studio build for the production GPU architectures, its CUDA runtime and GTK/X11 client libraries (no display needed). vcpkg fetches its C++ dependencies at build time; the trainer runs offline with `--no-download`. See [Gaussian splats](GAUSSIAN_SPLATS.md#build-lichtfeld-for-the-production-image).
 
 See the [exact model inventory and DVC layout](MODELS.md) and [checksum manifest](../provenance/model-manifest.json).
 
