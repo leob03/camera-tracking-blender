@@ -6,6 +6,8 @@
 - **Version 2:** adds `audit_landmarks.npz` for independent witnesses.
 - **Version 3:** adds `environment/view_NNNNNN.npz` and `environment/plate_NNNNNN.png` for up to 12 declared views. Witness data is optional.
 
+- **Version 4:** retains the dense bundle and adds `splat/scene.ply`, `splat/camera_preview.mp4`, `splat/nearby_preview.mp4`, `splat/masks_preview.jpg`, and `splat/dataset.json`. `splat.camera_sha256` matches the unchanged camera member. Gaussian files are hashed in chunks and only these five declared names may be materialized beside the downloaded bundle.
+
 All binary files are listed in the manifest with SHA256 and byte length. The manifest contains source SHA256, original dimensions, rational FPS, frame selection, settings, processing resolution, original-pixel lens stages and optional-stage receipts.
 
 Additions in node pack 0.4.0 (bundle versions unchanged):

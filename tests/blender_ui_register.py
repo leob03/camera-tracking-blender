@@ -71,7 +71,7 @@ def expect_error(op, text, **kwargs):
 # Panel structure.
 panels = {cls.__name__: cls for cls in addon.PANELS}
 assert all(cls.bl_parent_id == 'VIPE_PT_remote_tracking' for name, cls in panels.items() if name != 'VIPE_PT_panel')
-assert all('DEFAULT_CLOSED' in panels[name].bl_options for name in ['VIPE_PT_worker', 'VIPE_PT_jobs', 'VIPE_PT_logs'])
+assert all('DEFAULT_CLOSED' in cls.bl_options for name, cls in panels.items() if name != 'VIPE_PT_panel')  # every sub-panel starts closed
 assert not props.review_witnesses and props.sensor_preset == 'FULL_FRAME' and props.sensor_mm == 36.0
 log = draw_all()
 assert 'Worker not checked' in log and 'op:vipe_remote.submit' in log and 'list:vipe_jobs' in log

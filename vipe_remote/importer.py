@@ -257,6 +257,8 @@ def _merge_review(parent, manifest, camera, cloud, marker_count):
         if cam is not None:
             _key_review_errors(cam, start_frame, frames, errors)
     add_dense = bool(cloud.get('environment')) and 'dense_environment_group' not in groups
+    if cloud.get('environment'):
+        parent['vipe_dense_job_id'] = manifest['job_id']
     if add_dense:
         from .environment import import_environment
         dense = import_environment(parent, root, cloud['environment'])
@@ -289,14 +291,24 @@ def _merge_review(parent, manifest, camera, cloud, marker_count):
 def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scene_scale=1.0, expected_source_sha256=None, sensor_width=36.0, plate_path="", plate_first_frame=None):
     manifest, camera, cloud = load_bundle(path, expected_source_sha256)
     identifier = manifest['job_id']
+    from .splat import attach_splat, check_splat_camera
     for existing in bpy.context.scene.collection.children:
         if existing.get('vipe_job_id') == identifier:
+            if manifest.get('environment'):
+                existing['vipe_dense_job_id'] = identifier
+            if manifest.get('splat'):
+                attach_splat(existing, path, manifest)
             return existing, False
     parent = next((c for c in bpy.context.scene.collection.children if manifest.get('review_of') and c.get('vipe_job_id') == manifest['review_of']), None)
     if parent is not None:
+        if manifest.get('splat'):
+            check_splat_camera(parent, manifest)
         if cloud.get('audit') is None and not cloud.get('environment'):
             raise ValueError('The extension bundle adds neither review witnesses nor dense geometry.')
-        return _merge_review(parent, manifest, camera, cloud, marker_count), False
+        merged = _merge_review(parent, manifest, camera, cloud, marker_count)
+        if manifest.get('splat'):
+            attach_splat(merged, path, manifest)
+        return merged, False
     if not math.isfinite(sensor_width) or sensor_width <= 0:
         raise ValueError("Sensor width must be positive and finite.")
     if not math.isfinite(scene_scale) or scene_scale <= 0:
@@ -310,6 +322,8 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
     collection = bpy.data.collections.new(f"ViPE | {label} | {identifier[:8]}")
     scene.collection.children.link(collection)
     collection['vipe_job_id'] = identifier
+    if manifest.get('environment'):
+        collection['vipe_dense_job_id'] = identifier
     collection['vipe_result_bundle'] = str(Path(path).resolve())
     collection['vipe_source_sha256'] = source['sha256']
     try:
@@ -459,6 +473,8 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         _review_viewports()
         cam.select_set(True)
         bpy.context.view_layer.objects.active = cam
+        if manifest.get('splat'):
+            attach_splat(collection, path, manifest)
         return collection, True
     except Exception:
         for obj in list(collection.all_objects):

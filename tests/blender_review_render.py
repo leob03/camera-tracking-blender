@@ -6,25 +6,28 @@ import sys
 import bpy
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from vipe_remote.importer import import_bundle
+from vipe_remote.review_render import BLENDER_5_COMPOSITOR, compositor_tree
 
 bundle, plate = sys.argv[sys.argv.index('--') + 1:][:2]
 scene = bpy.context.scene
 
 # An artist's own compositor setup is never replaced.
-scene.use_nodes = True
-scene.node_tree.nodes.new('CompositorNodeBlur').name = 'Artist blur'
+if BLENDER_5_COMPOSITOR:
+    scene.compositing_node_group = bpy.data.node_groups.new('Artist compositor', 'CompositorNodeTree')
+artist = compositor_tree(scene, create=True)
+artist.nodes.new('CompositorNodeBlur').name = 'Artist blur'
 collection, _ = import_bundle(bundle, source_path=plate, start_frame=1001)
-assert not collection['vipe_plate_composited'] and 'Artist blur' in scene.node_tree.nodes
+assert not collection['vipe_plate_composited'] and 'Artist blur' in compositor_tree(scene).nodes
 for obj in list(collection.all_objects):
     bpy.data.objects.remove(obj, do_unlink=True)
 for child in list(collection.children_recursive) + [collection]:
     bpy.data.collections.remove(child)
-scene.node_tree.nodes.remove(scene.node_tree.nodes['Artist blur'])
+artist.nodes.remove(artist.nodes['Artist blur'])
 
 collection, _ = import_bundle(bundle, source_path=plate, start_frame=1001)
 assert scene.render.film_transparent and scene.view_settings.view_transform == 'Standard'
 assert collection['vipe_plate_composited'], 'default compositor should get the plate'
-nodes = scene.node_tree.nodes
+nodes = compositor_tree(scene).nodes
 assert nodes['ViPE Plate'].clip == scene.camera.data.background_images[0].clip
 assert nodes['ViPE Composite'].inputs['Image'].links[0].from_node == nodes['ViPE Render over plate']
 groups = {c.get('vipe_role'): c for c in collection.children}

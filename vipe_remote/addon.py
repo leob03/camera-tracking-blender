@@ -14,22 +14,23 @@ import bpy
 from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 from bpy_extras.io_utils import ImportHelper
+from mathutils import Matrix
 
 from .bundle import load_bundle
 from .client import Client, Detached, JobCancelled
-from .importer import import_bundle
+from .importer import _child_collection, import_bundle
 from .job_logs import LogBuffer
 from .scene_tools import CLASSES as SCENE_TOOL_CLASSES, job_collection
-from . import plate_proxy
-from .sequence_flow import plate_pattern, prepare_upload
+from . import plate_proxy, splat_viewer
+from .sequence_flow import plate_pattern, prepare_training_plate, prepare_upload
 
 
 _active = None
 _log_buffers = {}
-JOB_MODES = ('submit', 'resume', 'review')
-STAGES = [('upload', "Upload"), ('queue', "Queue"), ('prepare', "Prepare"), ('solve', "Camera solve"), ('witnesses', "Review witnesses"), ('dense', "Dense"), ('package', "Package"), ('download', "Download"), ('import', "Import")]
+JOB_MODES = ('submit', 'resume', 'review', 'splat')
+STAGES = [('upload', "Upload"), ('queue', "Queue"), ('prepare', "Prepare"), ('solve', "Camera solve"), ('witnesses', "Review witnesses"), ('dense', "Dense"), ('splat', "Gaussian splat"), ('package', "Package"), ('download', "Download"), ('import', "Import")]
 STAGE_ORDER = [key for key, _ in STAGES]
-STAGE_MESSAGES = [('Connecting to worker', 'upload'), ('Preparing plate proxy', 'upload'), ('Checking plate on worker', 'upload'), ('Plate already on worker', 'upload'), ('Uploading video', 'upload'), ('Waiting for worker', 'queue'), ('Starting ViPE worker', 'prepare'), ('Preparing video', 'prepare'), ('Preparing review', 'prepare'), ('Unpacking plate frames', 'prepare'), ('Estimating initial lens', 'solve'), ('Reusing camera solve', 'solve'), ('Tracking camera', 'solve'), ('Saving frozen camera', 'solve'), ('Generating independent CoTracker', 'witnesses'), ('Loading independent CoTracker', 'witnesses'), ('Triangulating independent tracks', 'witnesses'), ('Computing optional dense', 'dense'), ('Dense ', 'dense'), ('Packaging tracking results', 'package'), ('Tracking results ready', 'package'), ('Downloading result', 'download')]
+STAGE_MESSAGES = [('Preparing training plate', 'upload'), ('Uploading training plate', 'upload'), ('Preparing splat', 'prepare'), ('Training Gaussian', 'splat'), ('Rendering Gaussian', 'splat'), ('Gaussian splat and', 'splat'), ('Connecting to worker', 'upload'), ('Preparing plate proxy', 'upload'), ('Checking plate on worker', 'upload'), ('Plate already on worker', 'upload'), ('Uploading video', 'upload'), ('Waiting for worker', 'queue'), ('Starting ViPE worker', 'prepare'), ('Preparing video', 'prepare'), ('Preparing review', 'prepare'), ('Unpacking plate frames', 'prepare'), ('Estimating initial lens', 'solve'), ('Reusing camera solve', 'solve'), ('Tracking camera', 'solve'), ('Saving frozen camera', 'solve'), ('Generating independent CoTracker', 'witnesses'), ('Loading independent CoTracker', 'witnesses'), ('Triangulating independent tracks', 'witnesses'), ('Computing optional dense', 'dense'), ('Dense ', 'dense'), ('Packaging tracking results', 'package'), ('Tracking results ready', 'package'), ('Downloading result', 'download')]
 # Published horizontal filmback widths (mm) of the recording area.
 SENSOR_PRESETS = [
     ('CUSTOM', "Custom", "Enter the filmback width", 0.0),
@@ -121,6 +122,20 @@ class ViPERemoteProperties(bpy.types.PropertyGroup):
     review_witnesses: BoolProperty(name="Review witnesses", default=False, description="Run CoTracker and place the original review crosses; assesses the frozen camera without improving its solve")
     dense_environment: BoolProperty(name="Dense environment reconstruction", default=False, description="Compute post-SLAM video depth and accumulate static colored surfaces; adds processing time")
     dense_mode: EnumProperty(name="Dense depth", items=[('fast', "Sampled views (fast)", "Depth for the sampled dense views only"), ('video', "Full video depth (slow, original)", "Video depth for the whole selection, as in earlier versions")], default='fast')
+    splat_preset: EnumProperty(name="Splat quality", items=[
+        ('quick', "Quick preview", "About 5 minutes on a 16 GB GPU: 10k steps, 1536 px from the uploaded solve plate, up to 1M Gaussians"),
+        ('quality', "Quality", "About 30-35 minutes for 300 frames: full 30k-step schedule, 2048 px (EXR plates upload a 2048 px training plate), up to 3M Gaussians")], default='quick')
+    splat_custom: BoolProperty(name="Custom settings", default=False, description="Override the preset's training settings")
+    splat_iterations: IntProperty(name="Training steps", default=30000, min=100, max=60000, description="The whole training schedule is scaled to this length")
+    splat_max_dimension: IntProperty(name="Training long edge", default=2048, min=256, max=4096, description="Pixels; larger images need more GPU memory and, for EXR plates, a larger upload")
+    splat_frame_step: IntProperty(name="Use every Nth frame", default=1, min=1, max=20, description="Shots longer than 400 frames are also subsampled evenly")
+    splat_max_gaussians: IntProperty(name="Gaussian limit", default=3000000, min=50000, max=6000000, description="Detail versus GPU memory, file size (about 250 MB per million) and viewport speed")
+    splat_sh_degree: IntProperty(name="View-dependent colour", default=3, min=0, max=3, update=lambda self, context: splat_viewer.redraw(),
+                                 description="Spherical-harmonic degree drawn in the viewport: 3 matches the trainer's previews, 0 is flat colour and lighter on the GPU")
+    splat_display_percent: IntProperty(name="Gaussians shown", default=100, min=1, max=100, subtype='PERCENTAGE', update=lambda self, context: splat_viewer.redraw(),
+                                       description="Draw only the most visible Gaussians for a lighter viewport on small GPUs")
+    splat_occlusion: BoolProperty(name="Behind scene objects", default=True, update=lambda self, context: splat_viewer.redraw(),
+                                  description="Hide the splat behind Blender objects; off draws it on top of everything")
     masking: BoolProperty(name="Exclude dynamic categories", default=True)
     mask_phrases: StringProperty(name="Categories", default="person,animal,vehicle,ball,balloon,gun,pet,car,bus")
     lens_mode: EnumProperty(name="Lens", items=[('auto', "Estimate and refine", "GeoCalib initialization followed by stock ViPE lens optimization"), ('fixed', "Known focal length (locked)", "Use a supplied focal length with a centered principal point and keep it fixed")], default='auto')
@@ -278,6 +293,20 @@ def _import(props, record):
     manifest, _, _ = load_bundle(props.result_path, record.get('source_sha256'))
     if manifest['job_id'] != record['job_id']:
         raise ValueError("The downloaded bundle belongs to a different job.")
+    if manifest.get('splat'):
+        from .splat import attach_splat
+        scene_id = record.get('scene_job_id') or manifest.get('review_of')
+        collection = next((c for c in bpy.context.scene.collection.children if c.get('vipe_job_id') == scene_id), None)
+        if collection is not None:
+            attach_splat(collection, props.result_path, manifest)
+            parent = dict(record.get('scene_record') or _parent_record(record))
+            parent.update(splat_job_id=record['job_id'], splat_result=props.result_path)
+            _save_record(parent)
+            props.job_id, props.job_record = scene_id, json.dumps(parent)
+            props.result_path = parent.get('result', props.result_path)
+            props.state, props.progress = 'COMPLETE', 1
+            props.status = 'Gaussian splat ready. Open its previews or output folder in Results.'
+            return collection
     background = record.get('background') or record.get('source', '')
     if background and not Path(background).is_file() and record.get('plate'):
         background = ''  # proxy frames were removed: geometry-only import
@@ -359,10 +388,20 @@ def _run_network(mode, record, url, token, events, cancel, detach, log_buffer):
             emit('record', dict(record))
             workflow = client.submit(uploaded, record['plate']['pattern'] if record.get('plate') else Path(record['source']).name, record['settings'], record['job_id'])
             (folder / 'workflow_api.json').write_text(json.dumps(workflow, indent=2), encoding='utf-8')
-        elif mode == 'review':
+        elif mode in ('review', 'splat'):
             (folder / 'job.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
             emit('record', dict(record))
-            workflow = client.submit_review(record['parent_job_id'], record['job_id'], **record.get('extend', {}))
+            extend = dict(record.get('extend', {}))
+            if mode == 'splat' and record.get('training_long_edge'):
+                stop = lambda: cancel.is_set() or detach.is_set()
+                training = prepare_training_plate(record, record['training_long_edge'], progress, stop)
+                if training:
+                    uploaded = client.upload(training, lambda message, fraction: progress('Uploading training plate' if message == 'Uploading video' else message, fraction), stop)
+                    extend.update(splat_training_video=uploaded['video'], splat_training_sha256=uploaded['sha256'])
+                if cancel.is_set():
+                    raise JobCancelled("Upload stopped before submission.")
+            submit = client.submit_splat if mode == 'splat' else client.submit_review
+            workflow = submit(record['parent_job_id'], record['job_id'], **extend)
             emit('connection', True)
             (folder / 'workflow_api.json').write_text(json.dumps(workflow, indent=2), encoding='utf-8')
         item = client.wait(record['job_id'], progress, cancel.is_set, detach.is_set, log=log_output)
@@ -401,6 +440,8 @@ def _stage(message):
 
 
 def _job_stages(record):
+    if record.get('mode') == 'splat':
+        return {'upload', 'queue', 'prepare', 'splat', 'package', 'download', 'import'} if record.get('training_long_edge') else {'queue', 'prepare', 'splat', 'package', 'download', 'import'}
     if record.get('mode') == 'review':
         return {'queue', 'prepare', 'witnesses', 'package', 'download', 'import'}
     settings = record.get('settings') or {}
@@ -607,6 +648,219 @@ class VIPE_OT_add_dense(bpy.types.Operator):
         return True
     def execute(self, context):
         return _launch_extension(self, context, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': context.scene.vipe_remote.dense_mode}, 'Submitting dense job')
+
+
+SPLAT_KEYS = ('splat_iterations', 'splat_max_dimension', 'splat_frame_step', 'splat_max_gaussians')
+
+
+def _splat_settings(props):
+    """The preset, plus explicit values only when the artist overrides it (the worker owns the preset values)."""
+    return {'splat_preset': props.splat_preset, **({key: getattr(props, key) for key in SPLAT_KEYS} if props.splat_custom else {})}
+
+
+def _training_long_edge(props):
+    """Quality trains above the solve proxy; image-sequence plates then upload a larger proxy of the same frames."""
+    if props.splat_preset != 'quality':
+        return 0
+    return props.splat_max_dimension if props.splat_custom else 2048
+
+
+class VIPE_OT_train_splat(bpy.types.Operator):
+    bl_idname = 'vipe_remote.train_splat'
+    bl_label = 'Train Gaussian Environment'
+    bl_description = 'Train a static Gaussian splat on the worker using this job’s solved cameras, dense points and motion masks'
+
+    @classmethod
+    def poll(cls, context):
+        props = context.scene.vipe_remote
+        collection = job_collection(context)
+        if _active is not None or not _has_remote_job(props):
+            cls.poll_message_set('Load the completed worker job first.')
+            return False
+        if collection is None or not _summary(collection).get('dense'):
+            cls.poll_message_set('Add Dense Environment first.')
+            return False
+        return not _summary(collection).get('distortion')
+
+    def execute(self, context):
+        props, prefs = context.scene.vipe_remote, preferences(context)
+        collection = job_collection(context)
+        parent = _parent_record(_loads(props.job_record))
+        dense_id = collection.get('vipe_dense_job_id')
+        if not dense_id:
+            # Scenes saved before the splat feature keep the latest extension ID here.
+            dense_id = parent.get('review_job_id') or parent['job_id']
+        identifier = str(uuid.uuid4())
+        record = {**parent, 'job_id': identifier, 'parent_job_id': dense_id,
+                  'scene_job_id': collection['vipe_job_id'], 'scene_record': dict(parent),
+                  'parent_folder': parent.get('folder', ''), 'mode': 'splat',
+                  'folder': str(_cache_dir(prefs) / identifier), 'auto_import': True,
+                  'extend': _splat_settings(props), 'training_long_edge': _training_long_edge(props)}
+        record.pop('result', None)
+        props.job_id, props.job_record = identifier, json.dumps(record)
+        props.result_path, props.state, props.status, props.progress = '', 'RUNNING', 'Submitting splat job', 0
+        _launch(context, 'splat', record)
+        return {'FINISHED'}
+
+
+SPLAT_REPLACES = ('dense_environment_group', 'native_cloud_group')  # hidden while the splat is shown
+
+
+def _splat_group(context, collection):
+    """The job's '06 Gaussian splat' collection, recreated if it was deleted and included in the view layer."""
+    group = next((c for c in collection.children if c.get('vipe_role') == 'splat_group'), None) or _child_collection(collection, '06 Gaussian splat', 'splat_group')
+    layers = context.view_layer.layer_collection.children.get(collection.name)
+    layer = layers.children.get(group.name) if layers else None
+    if layer is not None:
+        layer.exclude = layer.hide_viewport = False
+    return group
+
+
+def _kiri_objects(collection, path=None):
+    """This job's KIRI copies, or only those of the splat at path. Scenes from earlier builds also listed other objects here."""
+    objects = [bpy.data.objects.get(name) for name in json.loads(collection.get('vipe_splat_objects', '[]'))]
+    return [o for o in objects if o is not None and o.get('vipe_role') == 'kiri_splat' and (path is None or o.get('vipe_splat_ply') == str(path))]
+
+
+class VIPE_OT_view_splat(bpy.types.Operator):
+    bl_idname = 'vipe_remote.view_splat'
+    bl_label = 'Show Gaussian Splat'
+    bl_description = "Draw the trained splat in the viewport under this job's ViPE alignment, or hide it. The dense environment and point cloud are hidden while it is shown"
+    show: BoolProperty(default=True, options={'SKIP_SAVE'})
+
+    @classmethod
+    def poll(cls, context):
+        collection = job_collection(context)
+        return collection is not None and bool(collection.get('vipe_splat_ply'))
+
+    def execute(self, context):
+        collection = job_collection(context)
+        path = Path(collection['vipe_splat_ply'])
+        obj = bpy.data.objects.get(collection.get('vipe_splat_viewer', ''))
+        if self.show and not path.is_file():
+            self.report({'ERROR'}, f'The downloaded splat is missing: {path}')
+            return {'CANCELLED'}
+        layers = context.view_layer.layer_collection.children.get(collection.name)
+        if self.show:
+            group = _splat_group(context, collection)
+            if obj is None or obj.get('vipe_role') != 'gaussian_splat':
+                # A light Empty: the viewer reads the PLY from disk, so nothing large goes into the .blend.
+                obj = bpy.data.objects.new(f"Gaussian splat {collection['vipe_job_id'][:8]}", None)
+                obj.empty_display_type, obj.empty_display_size = 'PLAIN_AXES', 0.2
+                obj['vipe_role'] = 'gaussian_splat'
+                collection['vipe_splat_viewer'] = obj.name
+            if group not in obj.users_collection:  # new, or its collection was deleted and it fell back into the job collection
+                for owner in list(obj.users_collection):
+                    owner.objects.unlink(obj)
+                group.objects.link(obj)
+            # The PLY is in the ViPE world, like the dense samples.
+            root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
+            obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), Matrix.Identity(4)
+            obj['vipe_splat_ply'] = str(path)  # a retrained splat replaces the one shown before
+        if obj is not None:
+            obj.hide_viewport = obj.hide_render = not self.show
+            if self.show:
+                obj.hide_set(False)
+        hidden = json.loads(collection.get('vipe_splat_hid', '[]'))
+        if self.show:
+            for child in collection.children:
+                layer = layers.children.get(child.name) if layers else None
+                if child.get('vipe_role') in SPLAT_REPLACES and layer and not layer.hide_viewport:
+                    layer.hide_viewport = True
+                    hidden.append(child.name)
+            for kiri in _kiri_objects(collection):  # a KIRI copy is much heavier to draw
+                kiri.hide_viewport = True
+        else:
+            for name in hidden:
+                if layers and layers.children.get(name):
+                    layers.children[name].hide_viewport = False
+            hidden = []
+        collection['vipe_splat_hid'] = json.dumps(sorted(set(hidden)))
+        splat_viewer.redraw()
+        if self.show and not splat_viewer.gaussian_count(path):
+            self.report({'INFO'}, f'Loading the Gaussian splat ({path.stat().st_size / 1e6:.0f} MB); progress shows in the viewport')
+        return {'FINISHED'}
+
+
+class VIPE_OT_kiri_splat(bpy.types.Operator):
+    bl_idname = 'vipe_remote.kiri_splat'
+    bl_label = 'Open in KIRI 3DGS Render'
+    bl_description = ("Run KIRI 3DGS Render's Import PLY on this job's splat, place it under the ViPE alignment and open KIRI's "
+                      "3DGS Render tab, for its editing, relighting and mesh-shadow tools")
+
+    @classmethod
+    def poll(cls, context):
+        from .splat import kiri_available
+        collection = job_collection(context)
+        return collection is not None and bool(collection.get('vipe_splat_ply')) and kiri_available()
+
+    def execute(self, context):
+        from .splat import import_correction, kiri_import, open_kiri_tab
+        collection = job_collection(context)
+        path = Path(collection['vipe_splat_ply'])
+        objects = _kiri_objects(collection, path)
+        if not objects:
+            if not path.is_file():
+                self.report({'ERROR'}, f'The downloaded splat is missing: {path}')
+                return {'CANCELLED'}
+            earlier = _kiri_objects(collection)  # copies of an earlier training stay, hidden
+            for obj in earlier:
+                obj.hide_viewport = True
+            root = next(o for o in collection.all_objects if o.get('vipe_role') == 'alignment')
+            try:
+                objects = kiri_import(context, path)
+                correction = import_correction(objects[0], path)
+            except ValueError as exc:
+                for obj in locals().get('objects') or []:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                self.report({'ERROR'}, str(exc))
+                return {'CANCELLED'}
+            group = _splat_group(context, collection)
+            for obj in objects:
+                for owner in list(obj.users_collection):
+                    owner.objects.unlink(obj)
+                group.objects.link(obj)
+                # KIRI converts axes on import; undo that under the alignment so the splat sits on the solve.
+                obj.parent, obj.matrix_parent_inverse, obj.matrix_basis = root, Matrix.Identity(4), correction
+                obj['vipe_role'], obj['vipe_splat_ply'] = 'kiri_splat', str(path)
+            objects[0].name = f"KIRI splat {collection.get('vipe_splat_job_id', collection['vipe_job_id'])[:8]}"
+            collection['vipe_splat_objects'] = json.dumps([o.name for o in earlier + objects])
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        for obj in objects:
+            obj.hide_viewport = False
+        objects[0].hide_set(False)
+        objects[0].select_set(True)
+        context.view_layer.objects.active = objects[0]  # KIRI's tools act on the active object
+        viewer = bpy.data.objects.get(collection.get('vipe_splat_viewer', ''))
+        if viewer is not None:
+            viewer.hide_viewport = True  # one splat at a time
+        open_kiri_tab(context)
+        self.report({'INFO'}, f"{objects[0].name} is selected in KIRI 3DGS Render (sidebar › 3DGS Render). KIRI shows it as editing points; "
+                              "use its Render tools or Material Preview to see the splat")
+        return {'FINISHED'}
+
+
+class VIPE_OT_open_splat(bpy.types.Operator):
+    bl_idname = 'vipe_remote.open_splat'
+    bl_label = 'Open Splat Output'
+    kind: EnumProperty(items=[('camera', 'Camera preview', "The trainer's render of the splat along the solved camera: how well it reproduces the shot"),
+                              ('nearby', 'Nearby view', "The same path shifted sideways (2.5% of the scene depth): how well the 3D holds up off the original camera"),
+                              ('masks', 'Training masks', 'The moving areas that training ignored'), ('folder', 'Output folder', '')])
+
+    @classmethod
+    def description(cls, context, properties):
+        return next(item.description for item in cls.bl_rna.properties['kind'].enum_items if item.identifier == properties.kind) or 'Open the splat output folder'
+
+    def execute(self, context):
+        collection = job_collection(context)
+        folder = Path(collection.get('vipe_splat_directory', '')) if collection else None
+        names = {'camera': 'camera_preview.mp4', 'nearby': 'nearby_preview.mp4', 'masks': 'masks_preview.jpg'}
+        path = folder / names[self.kind] if folder and self.kind in names else folder
+        if path is None or not path.exists():
+            self.report({'ERROR'}, 'The downloaded splat output is missing.')
+            return {'CANCELLED'}
+        return bpy.ops.wm.path_open(filepath=str(path))
 
 
 class VIPE_OT_resume(bpy.types.Operator):
@@ -1068,6 +1322,7 @@ class VIPE_PT_worker(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_plate(_SubPanel, bpy.types.Panel):
     bl_label = 'Plate'
+    bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout, props = self.layout, context.scene.vipe_remote
         layout.enabled = not props.busy
@@ -1090,6 +1345,7 @@ class VIPE_PT_plate(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_lens(_SubPanel, bpy.types.Panel):
     bl_label = 'Lens'
+    bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout, props = self.layout, context.scene.vipe_remote
         layout.enabled = not props.busy
@@ -1123,6 +1379,7 @@ class VIPE_PT_solve(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_outputs(_SubPanel, bpy.types.Panel):
     bl_label = 'Outputs'
+    bl_options = {'DEFAULT_CLOSED'}
     def draw(self, context):
         layout, props = self.layout, context.scene.vipe_remote
         width = _wrap_width(context)
@@ -1146,6 +1403,7 @@ class VIPE_PT_outputs(_SubPanel, bpy.types.Panel):
 
 class VIPE_PT_results(_SubPanel, bpy.types.Panel):
     bl_label = 'Results'
+    bl_options = {'DEFAULT_CLOSED'}
     @classmethod
     def poll(cls, context):
         return job_collection(context) is not None
@@ -1181,6 +1439,45 @@ class VIPE_PT_results(_SubPanel, bpy.types.Panel):
         grid.operator('vipe_remote.set_axis', icon='EMPTY_SINGLE_ARROW')
         box.operator('vipe_remote.reset_alignment', icon='LOOP_BACK')
         _hint(box, 'Select markers, or cloud vertices in Edit Mode. Floor 3+, scale and axis 2 (active point is +X).', width - 2)
+
+
+class VIPE_PT_splat(_SubPanel, bpy.types.Panel):
+    bl_label = 'Gaussian Splat'
+    bl_options = {'DEFAULT_CLOSED'}
+    @classmethod
+    def poll(cls, context):
+        return job_collection(context) is not None
+    def draw(self, context):
+        layout, props = self.layout, context.scene.vipe_remote
+        width = _wrap_width(context)
+        collection = job_collection(context)
+        layout.prop(props, 'splat_preset', text='')
+        layout.prop(props, 'splat_custom')
+        if props.splat_custom:
+            for key in SPLAT_KEYS:
+                layout.prop(props, key)
+        layout.operator('vipe_remote.train_splat', icon='RENDER_STILL')
+        if collection.get('vipe_splat_directory'):
+            viewer = bpy.data.objects.get(collection.get('vipe_splat_viewer', ''))
+            visible = viewer is not None and not viewer.hide_viewport
+            layout.operator('vipe_remote.view_splat', text='Hide Gaussian Splat' if visible else 'Show Gaussian Splat', icon='HIDE_ON' if visible else 'OUTLINER_OB_POINTCLOUD').show = not visible
+            state = splat_viewer.status(collection['vipe_splat_ply']) if visible else ''
+            if state:
+                layout.label(text=state, icon='ERROR' if state.startswith('Could not') else 'TIME')
+            if visible:
+                display = layout.column(align=True)
+                display.prop(props, 'splat_sh_degree')
+                display.prop(props, 'splat_display_percent')
+                display.prop(props, 'splat_occlusion')
+            row = layout.row(align=True)
+            row.operator('vipe_remote.open_splat', text='Camera preview', icon='PLAY').kind = 'camera'
+            row.operator('vipe_remote.open_splat', text='Nearby view', icon='PLAY').kind = 'nearby'
+            row = layout.row(align=True)
+            row.operator('vipe_remote.open_splat', text='Masks', icon='IMAGE_DATA').kind = 'masks'
+            row.operator('vipe_remote.open_splat', text='Output folder', icon='FILE_FOLDER').kind = 'folder'
+            if VIPE_OT_kiri_splat.poll(context):
+                layout.operator('vipe_remote.kiri_splat', icon='SHADERFX')
+        _hint(layout, 'Static scene only; add Dense Environment first. Quick is a preview; Quality takes longer and, for EXR plates, uploads a larger training plate. The splat draws in the viewport only; the previews are the trainer\'s own renders.', width)
 
 
 class VIPE_PT_jobs(_SubPanel, bpy.types.Panel):
@@ -1228,9 +1525,10 @@ def _before_load(_):
     if bpy.app.timers.is_registered(_poll):
         bpy.app.timers.unregister(_poll)
     _log_buffers.clear()
+    splat_viewer.clear()
 
 
-CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_jobs, VIPE_PT_logs]
+CLASSES = [ViPERemotePreferences, ViPERemoteProperties, ViPEJobItem, VIPE_OT_check, VIPE_OT_submit, VIPE_OT_review, VIPE_OT_add_dense, VIPE_OT_train_splat, VIPE_OT_view_splat, VIPE_OT_kiri_splat, VIPE_OT_open_splat, VIPE_OT_resume, VIPE_OT_cancel, VIPE_OT_import_cached, VIPE_OT_import_file, VIPE_OT_log, VIPE_OT_open_log, VIPE_OT_view_environment, VIPE_OT_markers_in_render, VIPE_OT_export_nuke, VIPE_OT_full_clip, VIPE_OT_refresh_jobs, VIPE_OT_load_job, VIPE_OT_import_job, *SCENE_TOOL_CLASSES, VIPE_UL_jobs, VIPE_PT_panel, VIPE_PT_worker, VIPE_PT_plate, VIPE_PT_lens, VIPE_PT_solve, VIPE_PT_outputs, VIPE_PT_results, VIPE_PT_splat, VIPE_PT_jobs, VIPE_PT_logs]
 PANELS = [cls for cls in CLASSES if issubclass(cls, bpy.types.Panel)]
 
 
@@ -1241,9 +1539,11 @@ def register():
     bpy.types.WindowManager.vipe_jobs = CollectionProperty(type=ViPEJobItem)
     bpy.types.WindowManager.vipe_jobs_index = IntProperty(min=0)
     bpy.app.handlers.load_pre.append(_before_load)
+    splat_viewer.register()
 
 
 def unregister():
+    splat_viewer.unregister()
     _before_load(None)
     if _before_load in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_before_load)

@@ -39,14 +39,14 @@ app.registerExtension({
                 }, { serialize: false });
             };
         }
-        if (nodeData.name === "ViPETrackVideo") {
+        if (["ViPETrackVideo", "ViPESplatJob"].includes(nodeData.name)) {
             const created = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 created?.apply(this, arguments);
                 const panel = document.createElement("div");
                 panel.style.cssText = "padding:10px;box-sizing:border-box;color:#e2e8f0;background:#171f2b;font:13px/1.5 sans-serif;white-space:pre-wrap;";
                 const message = document.createElement("div");
-                message.textContent = "Run this workflow to create a camera and native-cloud result.";
+                message.textContent = nodeData.name === "ViPESplatJob" ? "Enter a completed dense job ID, then Run to train a Gaussian environment." : "Run this workflow to create a camera and native-cloud result.";
                 panel.append(message);
                 const links = document.createElement("div");
                 links.style.cssText = "display:flex;gap:14px;margin-top:10px;";
@@ -56,7 +56,7 @@ app.registerExtension({
                 const executed = this.onExecuted;
                 this.onExecuted = function (output) {
                     executed?.apply(this, arguments);
-                    message.textContent = output.vipe_summary?.[0] || "Camera and native points ready.";
+                    message.textContent = output.vipe_summary?.[0] || (nodeData.name === "ViPESplatJob" ? "Gaussian splat and previews ready." : "Camera and native points ready.");
                     links.replaceChildren();
                     const result = output.vipe_result?.[0];
                     if (!result) return;

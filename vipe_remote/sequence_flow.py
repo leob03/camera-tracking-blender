@@ -32,6 +32,28 @@ def prepare_upload(record, progress=lambda *args: None, stop=lambda: False):
     return str(archive)
 
 
+def prepare_training_plate(record, long_edge, progress=lambda *args: None, stop=lambda: False):
+    """Higher-resolution proxy of exactly the solved frames for Gaussian training, or None.
+
+    Movie plates are already on the worker at full size. Image sequences were solved from a
+    processing-size proxy, so a quality splat gets its own larger proxy of the same frames.
+    """
+    plate = record.get('plate')
+    if not plate or not is_sequence(record['source']) or long_edge <= max(plate['proxy_width'], plate['proxy_height']):
+        return None
+    from .plate_proxy import describe
+    first = plate['first_frame'] - describe(record['source'])['first'] + 1
+    options = dict(first_index=first, last_index=first + plate['frame_count'] - 1, long_edge=long_edge,
+                   colorspace=plate['colorspace'], fps=(plate['fps_num'], plate['fps_den']))
+    cache = Path(record['folder']).parent / 'proxies' / proxy_key(record['source'], **options)
+    found = cached_proxy(cache)
+    if found:
+        progress('Preparing training plate', 1)
+        return found[0]
+    report = lambda message, fraction: progress('Preparing training plate', fraction)
+    return build_proxy(record['source'], cache, ocio_config=record.get('ocio_config', ''), progress=report, stop=stop, **options)[0]
+
+
 def plate_pattern(record):
     """Nuke-style path of the original plate for exports (#### padding for sequences)."""
     if not record.get('plate'):
