@@ -51,8 +51,8 @@ Loading reads the PLY in the background (about 5–8 s for a 650 MB Quality spla
 runs KIRI's own **Import PLY** on the job's splat, places it under the alignment (undoing KIRI's axis conversion so it
 sits on the solve), makes it the active object and opens the sidebar on KIRI's **3DGS Render** tab in Edit › Import,
 exactly where KIRI's import leaves you. From there use KIRI's tools (camera updates, Render mode, colour, modifiers,
-relighting, mesh shadows). The built-in viewer is hidden meanwhile; **Show Gaussian Splat** switches back. KIRI's
-import blocks Blender for about a minute on a 2.6M-Gaussian splat.
+relighting, mesh shadows). The built-in viewer is hidden meanwhile; **Show Gaussian Splat** switches back.
+
 KIRI notes from testing (Ford 2.5M Gaussians, Linux):
 - Import takes about a minute; KIRI's EEVEE display is approximate (camera-facing quads, grain or streaks near the
   camera) and the viewport is slow on multi-million splats. Its first display waits 30–60 s for EEVEE shaders.
@@ -64,29 +64,72 @@ KIRI notes from testing (Ford 2.5M Gaussians, Linux):
   failed to find its shaders and then used more than 14 GB of RAM: it fills its GPU textures through Python lists.
 - KIRI stores the whole Gaussian array in the `.blend` (about 240 MB per million Gaussians).
 
-## Worker setup
+## Worker setup and production deployment
 
-Keep the current ViPE worker environment. Install the new node pack and restart ComfyUI when its queue is empty. Add this optional field to the worker JSON:
+Gaussian training is optional. A worker without the trainer keeps tracking, witnesses and dense working and reports Gaussian training as unavailable. Bringing it to production means four things on the worker, in addition to the existing ViPE worker:
 
-```json
-{
-  "lichtfeld_executable": "/opt/lichtfeld/launch.sh"
-}
+| Item | What is needed |
+| --- | --- |
+| Node pack | `comfyui_vipe_remote-0.5.0` or later. **No new Python packages**: dataset preparation runs in the existing ViPE environment (NumPy, SciPy, OpenCV); the ComfyUI environment is unchanged. |
+| Models | **None.** No new weights or checkpoints. LichtFeld's optional LPIPS metric is skipped (`--no-download`). The existing camera and dense models are still needed for the parent job. |
+| Trainer | A native **LichtFeld Studio** build for the production GPUs (below), started through a wrapper script. |
+| Worker JSON | `"lichtfeld_executable": "/opt/lichtfeld/launch.sh"`; restart ComfyUI when its queue is empty. |
+
+### Build LichtFeld for the production image
+
+Tested source: [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) revision `c72a0d8554a33371ccd97df1e9fbe480d0981fdd` (0.5.3 development snapshot, 2026-09-30). Other revisions are untested; the stage needs `--headless`, `--strategy mrnf`, `--mask-mode ignore`, `--centralize off`, `--min-track-length 0`, `--steps-scaler`, `--no-download`, PLY export and `--render-camera-path/--render-load/--render-output` (check the build's `--help`).
+
+The reference build used:
+
+- CUDA toolkit **12.8.93**, plus the packages `libnvjpeg-static`, `cuda-nvtx`, `cuda-nvtx-dev`, `cuda-profiler-api` and `cuda-nvml-dev`.
+- GCC/G++ **14** as both host and CUDA host compiler, CMake preset `linux-release`, vcpkg `a42757564758c60651ebc616d9b000b7b91249ef`. vcpkg downloads LichtFeld's C++ dependencies, so build in the Internet-connected image stage; the trainer itself runs offline.
+- A clean environment: no Conda/virtualenv compiler, linker, `CMAKE_PREFIX_PATH`, `LD_LIBRARY_PATH` or `PYTHONPATH` variables leaking into the build.
+
+```bash
+export VCPKG_ROOT=/opt/vcpkg CUDA_HOME=/usr/local/cuda-12.8
+cmake --preset linux-release \
+  -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
+  -DCUDAToolkit_ROOT=$CUDA_HOME \
+  -DCMAKE_CUDA_ARCHITECTURES="75;86;89;90"
+cmake --build build-linux-release -j8
 ```
 
-The configured file must be executable and accept LichtFeld CLI arguments. A wrapper can set library paths and then `exec` the trainer. An empty value leaves ordinary tracking available and reports Gaussian training as unavailable.
+**Set `CMAKE_CUDA_ARCHITECTURES` for the production GPUs.** The reference build used `native`, which compiled only for the build machine's GPU (Quadro RTX 5000, compute capability 7.5); that binary does not run its kernels on other GPU generations. List the capabilities of every worker GPU type, for example 86 (RTX A-series / A40), 89 (L4, L40S, RTX Ada) or 90 (H100).
 
-Tested trainer: [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio), source revision `c72a0d8554a33371ccd97df1e9fbe480d0981fdd` (0.5.3 development snapshot), an existing Linux CUDA 12.8 build on a Quadro RTX 5000, 16 GiB. The initial prototype targets a Linux worker; Windows Blender remains a network client. Other GPU architectures need a compatible trainer build.
+Runtime requirements:
 
-Required CLI features include `--headless`, `--strategy mrnf`, `--mask-mode ignore`, `--centralize off`, `--min-track-length 0`, `--no-download`, PLY export, and `--render-camera-path/--render-load/--render-output`. Check the installed build’s `--help`; availability in another release is not assumed.
+- An NVIDIA driver that supports CUDA 12.8 (R570 or newer). `libcuda.so.1` comes from the driver / container runtime.
+- Ship the whole `build-linux-release` directory (the `LichtFeld-Studio` binary, its `liblfs_*.so`, `libnvimgcodec`, OpenMesh and vcpkg libraries), plus the CUDA runtime `libcudart.so.12` and `libcurand.so.10`. If the base image's libstdc++ is older than GCC 14's, ship GCC 14's `libstdc++.so.6`, `libgomp.so.1` and `libgcc_s.so.1` too.
+- The binary links GTK 3, X11/XCB, Wayland client, cairo/pango, fontconfig, libepoxy and libxkbcommon even in headless use, so those **libraries** must be installed (on Ubuntu, `libgtk-3-0` or `libgtk-3-0t64` pulls in most of them). **No display or X server is needed**: on 2026-10-30, training and the preview render both ran with `DISPLAY` unset, CUDA only. Check with `ldd build-linux-release/LichtFeld-Studio | grep "not found"`.
+- LichtFeld is GPL-3.0-or-later. Keep its license and the source revision and build settings with the image; this repository does not redistribute the binary.
 
-No Python libraries or models were added to ComfyUI for this stage. Dataset preparation runs in the existing ViPE Python environment using NumPy, SciPy and OpenCV. Training and preview rendering run in the separately installed native LichtFeld executable. Prepare that executable, CUDA/runtime libraries and its required assets in the online container build. This repository does not redistribute the trainer binary. LichtFeld carries GPL-3.0-or-later notices; retain its license and source/build provenance when packaging it.
+Wrapper (`lichtfeld_executable` must point at an executable that accepts LichtFeld's arguments). The stage sets `LFS_HOME` and `XDG_CACHE_HOME` to job-local directories itself:
 
-Every trainer invocation uses `--no-download`; training also uses `--safe-mode`. LPIPS is optional and was unavailable in the offline test, so it was skipped. No additional inference checkpoint is required by this tested training path. The existing camera/dense models remain required for producing the parent job.
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+root=/opt/lichtfeld
+unset PYTHONHOME PYTHONPATH
+export PYTHONNOUSERSITE=1
+export LD_LIBRARY_PATH="$root/build-linux-release:$root/cuda-lib"
+exec "$root/build-linux-release/LichtFeld-Studio" "$@"
+```
 
-Keep the parent source movie, dense result and `solve_masks.zip` available. The new job follows explicit parent job IDs to find retained masks. It rejects missing masks, masking-disabled solves, distorted cameras and changed source bytes. Currently only pinhole solves are supported; undistortion is a future addition.
+### Capacity
 
-Use work **and** output filesystems with room for datasets, checkpoints, PLY and ZIP copies. The stage requires at least 5 GiB free scratch at startup and retains the existing worker disk/RAM guards. One million Gaussians produced a roughly 229 MB compressed review bundle in the test. The result budget is 500 MiB and the importer limit is 512 MiB. Cancellation stops the worker process group, including LichtFeld. Intermediate datasets and training outputs are retained for diagnosis; delete only an explicitly reviewed job directory after keeping its result.
+- GPU memory: Quality (2.1M Gaussians at 2048 px) trained on a 16 GiB Quadro RTX 5000. Times: Quick about 4–5 min, Quality about 30–35 min for 300 frames on that card; one training uses the whole GPU, like the other stages.
+- Scratch: at least 5 GiB free at startup; the existing disk/RAM guards apply. Datasets and training outputs are kept in the job directory for diagnosis; the 1+ GB checkpoint is deleted after export.
+- Transfer: the camera part of the result stays within 500 MiB; the Gaussian PLY has its own 2.9 GiB budget (about 250 MB per million Gaussians; 1M ≈ 230 MB bundle, Quality ≈ 0.5–0.65 GB). Blender downloads the result through ComfyUI `/view`, so **the gateway must allow downloads of about 3.4 GiB** and long transfer times.
+- Cancellation stops the worker process group, including LichtFeld.
+
+### Verify a deployment
+
+1. `GET /vipe/capabilities` returns `"splat_jobs": "ViPESplatJob"` (it is `null` when `lichtfeld_executable` is empty).
+2. Run `workflows/ViPE Train Gaussian Environment.json` (or **Train Gaussian Environment** in Blender) on a completed dense job with the **Quick** preset. The job log shows `Training Gaussian splat (step N of M)` and the job ends with a `splat/scene.ply`, camera preview and nearby preview.
+3. In Blender, **Show Gaussian Splat** draws it on the solve and **Camera preview** plays the trainer's render.
+
+Keep the parent source movie, dense result and `solve_masks.zip` available: the splat job follows explicit parent job IDs to find the retained masks. It rejects missing masks, masking-disabled solves, distorted cameras and changed source bytes. Only pinhole solves are supported; undistortion is a future addition.
 
 ### ComfyUI directly
 
@@ -155,4 +198,4 @@ The held-out images are held out only from appearance fitting: ViPE estimated ca
 - Add confidence-weighted depth supervision and stronger consistency filtering if floaters persist; avoid forcing uncertain depth onto the trainer.
 - Add lens undistortion, more careful exposure handling and representative keyframe selection.
 - Run a controlled comparison using the same images, masks, renderer and budget with ViPE versus alternative camera/point initialization.
-- Add an explicit Blender Gaussian renderer adapter after choosing the renderer artists will use.
+- Render the splat through the solved camera for compositing (the viewport viewer does not appear in F12 renders).

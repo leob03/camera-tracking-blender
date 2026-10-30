@@ -6,10 +6,12 @@
 - **Quick preview** and **Quality** presets. Quick: 10k steps, 1536 px, up to 1M Gaussians. Quality: the full 30k schedule, 2048 px, up to 3M Gaussians; image-sequence (EXR) plates upload a 2048 px training plate of the solved frames, since the solve proxy is only 1280 px. Shorter runs scale LichtFeld's whole schedule instead of stopping it early. Every solved frame trains (long shots are subsampled to 400 views); none are held out. Optional custom settings.
 - Splat controls live in their own **Gaussian Splat** sub-panel. Every sub-panel now starts closed.
 - **Show / Hide Gaussian Splat** draws the PLY with a built-in viewport splat renderer (3DGS projection, SH colour, sorted blending; looks like the trainer's previews, about 25 ms per redraw for 2M Gaussians on a Quadro RTX 5000) under the job's ViPE alignment, on Blender 4.4 to 5.2. The PLY stays on disk; the dense environment and point cloud hide while it is shown. Options: view-dependent colour (SH degree), Gaussians shown, behind scene objects.
-- **Open in KIRI 3DGS Render** hands the splat to KIRI for editing and relighting (KIRI's splat display, placed under the alignment).
+- **Open in KIRI 3DGS Render** runs KIRI's Import PLY on the splat, places it on the solve and opens KIRI's 3DGS Render tab, for editing and relighting.
 - The progress bar follows the trainer's steps instead of staying at 30% for the whole training.
 - Version-4 bundles include the Gaussian PLY, camera and nearby-view previews, mask sheet and dataset report; the splat has its own 3 GiB transfer budget. The 1+ GB trainer checkpoint is deleted on the worker after export.
 - Plate compositor works on Blender 5 (compositor node groups); the add-on is tested on Blender 4.4, 5.1.1 and 5.2.3 LTS.
+- **Hide / Show Markers in Renders** no longer fails on Blender 5.2. Show Gaussian Splat recovers scenes made by earlier builds and always shows the latest training.
+- Docs: production deployment checklist for the Gaussian trainer (LichtFeld build, GPU architectures, runtime libraries, gateway download size).
 - Added a directly loadable ComfyUI workflow, offline worker setup guide, coordinate and geometry tests, and Blender attachment, viewing and end-to-end tests.
 
 ## Blender add-on 0.5.2
