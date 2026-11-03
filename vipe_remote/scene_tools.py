@@ -25,10 +25,11 @@ def job_collection(context):
     props = context.scene.vipe_remote
     record = _record(props)
     candidates = [record.get('parent_job_id')] if record.get('mode') == 'review' and record.get('job_id') == props.job_id else []
+    from .importer import job_ids
     for identifier in candidates + [props.job_id]:
         if identifier:
             for collection in context.scene.collection.children:
-                if collection.get('vipe_job_id') == identifier:
+                if identifier in job_ids(collection):
                     return collection
     return None
 
@@ -74,7 +75,7 @@ class _AlignmentTool:
     @classmethod
     def poll(cls, context):
         if alignment_root(context) is None:
-            cls.poll_message_set('Import or load a ViPE job first.')
+            cls.poll_message_set('Import or load a Camera Track job first.')
             return False
         return True
 
