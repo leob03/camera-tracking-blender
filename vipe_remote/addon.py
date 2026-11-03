@@ -18,7 +18,7 @@ from mathutils import Matrix
 
 from .bundle import load_bundle
 from .client import Client, Detached, JobCancelled
-from .importer import _child_collection, import_bundle
+from .importer import collapse_outliner, _child_collection, import_bundle
 from .job_logs import LogBuffer
 from .scene_tools import CLASSES as SCENE_TOOL_CLASSES, job_collection
 from . import plate_proxy, splat_viewer
@@ -266,7 +266,7 @@ def _notify_redraw():
 
 
 def _job_log_text(props):
-    name = 'ViPE Log ' + (props.job_id or 'connection')
+    name = 'Camera Track Log ' + (props.job_id or 'connection')
     text = bpy.data.texts.get(name) or bpy.data.texts.new(name)
     props.log_text_name = text.name
     return text
@@ -290,6 +290,12 @@ def _display_log(props, contents):
 
 
 def _import(props, record):
+    collection = _import_record(props, record)
+    collapse_outliner()
+    return collection
+
+
+def _import_record(props, record):
     manifest, _, _ = load_bundle(props.result_path, record.get('source_sha256'))
     if manifest['job_id'] != record['job_id']:
         raise ValueError("The downloaded bundle belongs to a different job.")
@@ -323,6 +329,13 @@ def _import(props, record):
         props.status = f"{' and '.join(added).capitalize()} added to job {parent_id[:8]}"
         if record.get('extend', {}).get('dense_environment'):
             props.status += '. Use Show Dense Environment.'
+        return collection
+    if not created and collection.get('vipe_job_id') != record['job_id']:
+        added = json.loads(collection.get('vipe_last_merge', '[]'))
+        props.status = (f"Camera solve reused: {' and '.join(added)} added to {collection.name}." if added else
+                        f"Camera solve reused; {collection.name} already has these outputs.")
+        if 'dense environment' in added:
+            props.status += ' Use Show Dense Environment.'
         return collection
     props.status = f"Imported {manifest['selection']['count']} camera frames and {manifest['cloud']['point_count']:,} native points." if created else "This job is already imported; its collection was preserved."
     if created:
@@ -725,7 +738,7 @@ def _kiri_objects(collection, path=None):
 class VIPE_OT_view_splat(bpy.types.Operator):
     bl_idname = 'vipe_remote.view_splat'
     bl_label = 'Show Gaussian Splat'
-    bl_description = "Draw the trained splat in the viewport under this job's ViPE alignment, or hide it. The dense environment and point cloud are hidden while it is shown"
+    bl_description = "Draw the trained splat in the viewport under this job's alignment, or hide it. The dense environment and point cloud are hidden while it is shown"
     show: BoolProperty(default=True, options={'SKIP_SAVE'})
 
     @classmethod
@@ -785,7 +798,7 @@ class VIPE_OT_view_splat(bpy.types.Operator):
 class VIPE_OT_kiri_splat(bpy.types.Operator):
     bl_idname = 'vipe_remote.kiri_splat'
     bl_label = 'Open in KIRI 3DGS Render'
-    bl_description = ("Run KIRI 3DGS Render's Import PLY on this job's splat, place it under the ViPE alignment and open KIRI's "
+    bl_description = ("Run KIRI 3DGS Render's Import PLY on this job's splat, place it under the job's alignment and open KIRI's "
                       "3DGS Render tab, for its editing, relighting and mesh-shadow tools")
 
     @classmethod
@@ -1265,11 +1278,11 @@ def _draw_stages(layout, props, active, width):
 
 
 class VIPE_PT_panel(bpy.types.Panel):
-    bl_label = 'ViPE Remote Tracking'
+    bl_label = 'Camera Track'
     bl_idname = 'VIPE_PT_remote_tracking'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ViPE Remote'
+    bl_category = 'Camera Track'
     def draw(self, context):
         layout, props, prefs = self.layout, context.scene.vipe_remote, preferences(context)
         width = _wrap_width(context)
@@ -1304,7 +1317,7 @@ class VIPE_PT_panel(bpy.types.Panel):
 class _SubPanel:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'ViPE Remote'
+    bl_category = 'Camera Track'
     bl_parent_id = 'VIPE_PT_remote_tracking'
 
 

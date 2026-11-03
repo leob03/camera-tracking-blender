@@ -1,5 +1,11 @@
 # Changes
 
+## Blender add-on 0.6.1
+
+- The add-on is now called **Camera Track** (sidebar tab, panel, Preferences). New imports are named `Camera Track | <shot> | <job>` with a **Camera Track alignment** object; scenes and settings from earlier versions keep working.
+- Resubmitting a shot whose camera solve the worker reuses (same plate and solve settings) adds the newly requested outputs (review witnesses, dense environment) to the existing collection instead of creating a second copy of the camera, tracks and cloud. A changed solve, or a changed start frame, scene scale, marker count, point limit or filmback, still imports as a new collection.
+- After an import, the Outliner shows the job collection with its groups (01 Camera and source plate, 02 Static tracks, ...) closed.
+
 ## ComfyUI node pack 0.5.1
 
 - Fix preparation failures on MP4s whose stored sample count differs from the frames exposed by their playback edit list. Source ranges now use decoded display frames.

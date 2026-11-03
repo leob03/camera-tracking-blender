@@ -263,7 +263,7 @@ def _distortion(collection, width, height, warnings):
 
 def _readme(label, job, rows, width, height, fps, lens, have_abc):
     first, last = rows[0]['frame'], rows[-1]['frame']
-    lines = [f"ViPE Remote Tracking export for Nuke: job {job}, frames {first}-{last}, {width}x{height}, {fps:.6g} fps.",
+    lines = [f"Camera Track export for Nuke: job {job}, frames {first}-{last}, {width}x{height}, {fps:.6g} fps.",
         f"{label}_track.nk: File > Import Script (or paste). Plate Read, ViPE_Camera (Camera2, rot_order ZXY), native point cloud, Scene + ScanlineRender check render.",
         f"{label}_camera.chan: frame tx ty tz rx ry rz vfov. Import onto a Camera with rot_order ZXY, haperture {_num(rows[0]['haperture'])} mm, vaperture {_num(rows[0]['vaperture'])} mm.",
         f"{label}_camera.abc: Alembic camera and native points (Y-up)." + ("" if have_abc else " NOT WRITTEN - see warnings."),

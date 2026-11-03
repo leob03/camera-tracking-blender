@@ -3,15 +3,15 @@
 ## Install
 
 1. Build the packages, or obtain the built add-on ZIP from the project maintainer.
-2. In Blender 5.2 LTS or 4.4, open Preferences → Add-ons → Install from Disk. Select `vipe_remote-0.6.0.zip` and enable **ViPE Remote Tracking**.
-3. In the 3D View sidebar (N), open **ViPE Remote → Worker**.
+2. In Blender 5.2 LTS or 4.4, open Preferences → Add-ons → Install from Disk. Select `vipe_remote-0.6.1.zip` and enable **Camera Track**.
+3. In the 3D View sidebar (N), open **Camera Track → Worker**.
 4. Enter the worker URL and click **Check Connection**. The main panel shows *Worker connected*, *Worker check failed* or *Worker not checked* for the current URL; the refresh button beside it checks again. `127.0.0.1` refers to the computer running Blender. Use your worker address, gateway or SSH tunnel for a different computer.
 
 No pip or CUDA installation is required in Blender. The optional Bearer token is session-only and intended for an existing gateway.
 
 ## Panel layout
 
-The **ViPE Remote Tracking** panel holds the connection indicator, **Submit Tracking Job** / **Cancel Job** (**Stop Download** while downloading), the status, a progress bar and the elapsed time. While a job runs, a checklist marks each stage done, current or pending: Upload, Queue, Prepare, Camera solve, Review witnesses and Dense (when enabled), Package, Download, Import. Live worker detail (for example a SLAM pass percentage) appears under the current stage.
+The **Camera Track** panel holds the connection indicator, **Submit Tracking Job** / **Cancel Job** (**Stop Download** while downloading), the status, a progress bar and the elapsed time. While a job runs, a checklist marks each stage done, current or pending: Upload, Queue, Prepare, Camera solve, Review witnesses and Dense (when enabled), Package, Download, Import. Live worker detail (for example a SLAM pass percentage) appears under the current stage.
 
 Sub-panels, which can be collapsed or reordered, all start closed: **Worker**, **Plate**, **Lens**, **Solve**, **Outputs**, **Results** and **Gaussian Splat** (only when the selected job is in the scene), **Jobs** and **Logs**. Settings are locked while a request runs.
 
@@ -29,7 +29,7 @@ Choose a local video, select a frame range, and click **Submit Tracking Job**. K
 - **Cloud point limit:** limits native points exported/displayed, not SLAM computation or dense environment samples. Native points are reconstruction hypotheses, not surveyed points.
 - **Scene scale:** scales the entire imported result together. ViPE scale is not surveyed.
 
-Resubmitting a plate never re-uploads it, and the worker reuses an earlier camera solve whenever the plate and the solve settings (frame range, processing size, masking, lens) are unchanged; only newly requested outputs run. Image-sequence proxies are cached in the download folder, so resubmitting the same frames does not read the plates again. After an import, Timeline, Dope Sheet and Graph Editors are framed to the imported frames.
+Resubmitting a plate never re-uploads it, and the worker reuses an earlier camera solve whenever the plate and the solve settings (frame range, processing size, masking, lens) are unchanged; only newly requested outputs run, and they are added to the shot's existing collection in the scene (when the start frame, scene scale, marker count, point limit and filmback are also unchanged; otherwise the result imports as a new collection). Image-sequence proxies are cached in the download folder, so resubmitting the same frames does not read the plates again. After an import, Timeline, Dope Sheet and Graph Editors are framed to the imported frames.
 
 ## Results
 

@@ -30,7 +30,7 @@ def _linear_keys(block):
 
 
 def _make_cloud(collection, root, points, colors, radius):
-    mesh = bpy.data.meshes.new("ViPE native points")
+    mesh = bpy.data.meshes.new("Camera Track native points")
     mesh.from_pydata(points.tolist(), [], [])
     mesh.update()
     color = mesh.color_attributes.new(name="Color", type='FLOAT_COLOR', domain='POINT')
@@ -43,7 +43,7 @@ def _make_cloud(collection, root, points, colors, radius):
     obj.parent = root
     obj["vipe_role"] = "native_cloud"
     obj["classification"] = "Post-BA native map; reconstructed hypotheses, not surveyed points"
-    material = bpy.data.materials.new("ViPE point colors")
+    material = bpy.data.materials.new("Camera Track point colors")
     material.use_nodes = True
     nodes = material.node_tree.nodes
     nodes.clear()
@@ -55,7 +55,7 @@ def _make_cloud(collection, root, points, colors, radius):
     material.node_tree.links.new(attribute.outputs['Color'], emission.inputs['Color'])
     material.node_tree.links.new(emission.outputs[0], output.inputs['Surface'])
     mesh.materials.append(material)
-    group = bpy.data.node_groups.new("ViPE point display", 'GeometryNodeTree')
+    group = bpy.data.node_groups.new("Camera Track point display", 'GeometryNodeTree')
     group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
     group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
     size = group.interface.new_socket(name="Point radius", in_out='INPUT', socket_type='NodeSocketFloat')
@@ -288,12 +288,23 @@ def _merge_review(parent, manifest, camera, cloud, marker_count):
     return parent
 
 
+def job_ids(collection):
+    """The jobs a scene collection holds: the one that created it and resubmissions merged into it."""
+    return {collection.get('vipe_job_id'), *json.loads(collection.get('vipe_merged_job_ids', '[]'))}
+
+
+def _import_settings(manifest, start_frame, marker_count, scene_scale, sensor_width):
+    """Scene-side settings that must match before a resubmission joins an existing collection."""
+    return json.dumps(dict(start_frame=int(start_frame), marker_count=int(marker_count), scene_scale=round(float(scene_scale), 6),
+                           sensor_width=round(float(sensor_width), 6), max_points=manifest.get('settings', {}).get('max_points')), sort_keys=True)
+
+
 def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scene_scale=1.0, expected_source_sha256=None, sensor_width=36.0, plate_path="", plate_first_frame=None):
     manifest, camera, cloud = load_bundle(path, expected_source_sha256)
     identifier = manifest['job_id']
     from .splat import attach_splat, check_splat_camera
     for existing in bpy.context.scene.collection.children:
-        if existing.get('vipe_job_id') == identifier:
+        if identifier in job_ids(existing):
             if manifest.get('environment'):
                 existing['vipe_dense_job_id'] = identifier
             if manifest.get('splat'):
@@ -309,6 +320,22 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         if manifest.get('splat'):
             attach_splat(merged, path, manifest)
         return merged, False
+    settings = _import_settings(manifest, start_frame, marker_count, scene_scale, sensor_width)
+    reused = manifest.get('camera_reused_from')
+    # The worker names the job that ran the solve, which may itself be a resubmission merged here.
+    same_solve = next((c for c in bpy.context.scene.collection.children if reused and reused in job_ids(c) | {c.get('vipe_solve_job_id')}
+                       and c.get('vipe_import_settings') == settings), None)
+    if same_solve is not None:
+        # A resubmission that reused this collection's solve and changed only the requested outputs: add them here.
+        previous = json.loads(same_solve.get('vipe_summary', '{}'))
+        has_dense = any(c.get('vipe_role') == 'dense_environment_group' for c in same_solve.children)
+        added = [name for name, new in (('review witnesses', cloud.get('audit') is not None and not previous.get('has_witnesses')),
+                                        ('dense environment', bool(cloud.get('environment')) and not has_dense)) if new]
+        if added:
+            _merge_review(same_solve, manifest, camera, cloud, marker_count)
+        same_solve['vipe_last_merge'] = json.dumps(added)
+        same_solve['vipe_merged_job_ids'] = json.dumps(sorted(job_ids(same_solve) - {same_solve['vipe_job_id']} | {identifier}))
+        return same_solve, False
     if not math.isfinite(sensor_width) or sensor_width <= 0:
         raise ValueError("Sensor width must be positive and finite.")
     if not math.isfinite(scene_scale) or scene_scale <= 0:
@@ -319,9 +346,11 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
     scene = bpy.context.scene
     old = (scene.camera, scene.frame_start, scene.frame_end, scene.frame_current, scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage, scene.render.fps, scene.render.fps_base, scene.render.pixel_aspect_x, scene.render.pixel_aspect_y)
     label = Path(source['name']).stem
-    collection = bpy.data.collections.new(f"ViPE | {label} | {identifier[:8]}")
+    collection = bpy.data.collections.new(f"Camera Track | {label} | {identifier[:8]}")
     scene.collection.children.link(collection)
     collection['vipe_job_id'] = identifier
+    collection['vipe_import_settings'] = settings
+    collection['vipe_solve_job_id'] = manifest.get('camera_reused_from') or identifier
     if manifest.get('environment'):
         collection['vipe_dense_job_id'] = identifier
     collection['vipe_result_bundle'] = str(Path(path).resolve())
@@ -331,7 +360,7 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         marker_collection = _child_collection(collection, '02 Static tracks', 'static_tracks_group')
         cross_collection = _child_collection(collection, '03 Review crosses', 'review_crosses_group')
         cloud_collection = _child_collection(collection, '04 Native point cloud', 'native_cloud_group')
-        root = bpy.data.objects.new("ViPE alignment", None)
+        root = bpy.data.objects.new("Camera Track alignment", None)
         collection.objects.link(root)
         root.rotation_euler.x = math.radians(-90)
         root.scale = (scene_scale,) * 3
@@ -451,7 +480,7 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
             collection['vipe_plate_path'] = plate_path
         if plate_first_frame is not None or source.get('first_frame') is not None:
             collection['vipe_plate_first_frame'] = int(plate_first_frame if plate_first_frame is not None else source['first_frame'])
-        report = bpy.data.texts.new(f"ViPE {label} {identifier[:8]} result")
+        report = bpy.data.texts.new(f"Camera Track {label} {identifier[:8]} result")
         report.write(json.dumps(manifest, indent=2))
         collection['vipe_manifest_text'] = report.name
         collection['vipe_camera'] = cam.name
@@ -494,3 +523,28 @@ def import_bundle(path, *, source_path="", start_frame=1, marker_count=100, scen
         scene.camera, scene.frame_start, scene.frame_end, frame, scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage, scene.render.fps, scene.render.fps_base, scene.render.pixel_aspect_x, scene.render.pixel_aspect_y = old
         scene.frame_set(frame)
         raise
+
+
+def collapse_outliner():
+    """Show each job collection with its groups (01 Camera, 02 Static tracks, ...) closed, after an import.
+
+    Blender keeps Outliner expansion out of its Python API, so this uses the Outliner's own operators once the new
+    collections are in its tree: close everything, then open two levels (Scene Collection, then the job collections).
+    """
+    if bpy.app.background:
+        return
+
+    def run():
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type != 'OUTLINER' or area.spaces.active.display_mode != 'VIEW_LAYER':
+                    continue
+                region = next(r for r in area.regions if r.type == 'WINDOW')
+                with bpy.context.temp_override(window=window, area=area, region=region):
+                    bpy.ops.outliner.expanded_toggle()  # opens everything when anything was closed,
+                    bpy.ops.outliner.expanded_toggle()  # so the second toggle closes everything
+                    bpy.ops.outliner.show_one_level(open=True)
+                    bpy.ops.outliner.show_one_level(open=True)
+                area.tag_redraw()
+        return None
+    bpy.app.timers.register(run, first_interval=0.2)  # after the Outliner has redrawn with the new collections

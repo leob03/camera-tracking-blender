@@ -4,11 +4,11 @@ Blender add-on **0.6.0** and ComfyUI node pack **0.5.0** add optional Gaussian t
 
 ## Artist workflow
 
-1. Install `dist/vipe_remote-0.6.0.zip` and restart Blender. The worker also needs the updated node pack and configured trainer below.
+1. Install `dist/vipe_remote-0.6.1.zip` and restart Blender. The worker also needs the updated node pack and configured trainer below.
 2. Solve a shot with **Exclude dynamic categories** enabled. Enable **Dense environment reconstruction**, or use **Results → Add Dense Environment** after solving.
 3. Inspect the camera and dense geometry. In the **Gaussian Splat** sub-panel (below Results), choose **Quick preview** or **Quality** and click **Train Gaussian Environment**.
 4. The progress bar follows the trainer's steps (30–85%). Follow **Open Live Log**, or the terminal used to launch Blender. Cancel and resume monitoring use the existing job controls.
-5. When complete, click **Show Gaussian Splat** to draw it under the job's **ViPE alignment**, or open **Camera preview**, **Nearby view**, **Masks** and **Output folder**. The downloaded Gaussian asset is `splat/scene.ply` beside this extension job's `result.zip`.
+5. When complete, click **Show Gaussian Splat** to draw it under the job's **Camera Track alignment**, or open **Camera preview**, **Nearby view**, **Masks** and **Output folder**. The downloaded Gaussian asset is `splat/scene.ply` beside this extension job's `result.zip`.
 
 This stage does not repeat tracking or modify the camera, markers, scene alignment or dense geometry. It trains static appearance; the moving subjects are excluded from the image loss. It is never enabled automatically.
 
@@ -27,7 +27,7 @@ This stage does not repeat tracking or modify the camera, markers, scene alignme
 **Show Gaussian Splat** draws `splat/scene.ply` with the add-on's own viewport splat renderer: the same Gaussian
 projection, view-dependent (spherical-harmonic) colour and back-to-front blending as the trainer's previews, so the
 viewport looks like **Camera preview**. It adds a light Empty to a **06 Gaussian splat** collection under the job,
-parented to the **ViPE alignment** object, so it follows Set Floor / Origin / Scale. The PLY stays on disk; nothing
+parented to the **Camera Track alignment** object, so it follows Set Floor / Origin / Scale. The PLY stays on disk; nothing
 large is stored in the `.blend`. While the splat is shown, the dense environment and point cloud are hidden; **Hide
 Gaussian Splat** brings them back. It works in any viewport shading mode (Solid is fastest) on Blender 4.4 to 5.2.
 
@@ -165,7 +165,7 @@ Training preserves separate `fx/fy`, principal points and animated intrinsics. L
 
 ### Coordinates
 
-Dataset cameras and points use the ViPE world (OpenCV axes). LichtFeld flips world Y and Z internally, but the exported PLY is back in the ViPE world: parent it under the job's **ViPE alignment** object with an identity transform, exactly like the dense samples. (Verified on the Ford and skateboard_alley splats against their seed points; an extra 180° X rotation puts the splat upside down.) Only LichtFeld's render camera paths use the flipped world and OpenGL camera axes: position = F·C, rotation = F·R·F with F = diag(1, −1, −1).
+Dataset cameras and points use the ViPE world (OpenCV axes). LichtFeld flips world Y and Z internally, but the exported PLY is back in the ViPE world: parent it under the job's **Camera Track alignment** object with an identity transform, exactly like the dense samples. (Verified on the Ford and skateboard_alley splats against their seed points; an extra 180° X rotation puts the splat upside down.) Only LichtFeld's render camera paths use the flipped world and OpenGL camera axes: position = F·C, rotation = F·R·F with F = diag(1, −1, −1).
 
 ## Preset A/B on skateboard_alley — 2026-10-27
 

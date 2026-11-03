@@ -221,7 +221,7 @@ try:
     assert review['mode'] == 'review' and review['parent_job_id'] == PARENT and review['source_sha256'] == 'abc' and review['auto_import'] and review['settings'] == parent['settings']
     assert (cache / review_id / 'workflow_api.json').is_file() and (cache / review_id / 'result.zip').is_file()
     assert json.loads((parent_folder / 'job.json').read_text())['review_job_id'] == review_id
-    text = bpy.data.texts['ViPE Log ' + review_id].as_string()
+    text = bpy.data.texts['Camera Track Log ' + review_id].as_string()
     assert text.count('Generating independent CoTracker tracks') == 1 and 'CoTracker window' not in text, text
     assert props.connection_state == 'OK' and 'Worker connected' in draw_all()
 
