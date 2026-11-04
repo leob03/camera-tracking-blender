@@ -127,7 +127,9 @@ class Client:
         # Older workers only know the original optional stages; never send them unknown inputs.
         known = set(caps.get("optional_inputs", ["review_witnesses", "dense_environment"]))
         required = {"frame_start", "frame_end", "max_dimension", "masking", "mask_phrases", "lens_mode", "focal_mm", "sensor_mm", "max_points"}
-        unsupported = [k for k, v in settings.items() if k not in required and k not in known and v]
+        # Refinements an older worker can safely skip (it then keeps its previous behaviour).
+        optional_refinements = {"dense_keep_ceilings"}
+        unsupported = [k for k, v in settings.items() if k not in required and k not in known and k not in optional_refinements and v]
         if unsupported:
             raise ValueError("This worker does not support: " + ", ".join(sorted(unsupported)) + ". Update the ComfyUI node pack.")
         settings = {k: v for k, v in settings.items() if k in required or k in known}
@@ -138,7 +140,7 @@ class Client:
             raise ValueError(f"Worker rejected the camera workflow: {response}")
         return workflow
 
-    def submit_review(self, parent_job_id, identifier, review_witnesses=True, dense_environment=False, dense_mode="fast"):
+    def submit_review(self, parent_job_id, identifier, review_witnesses=True, dense_environment=False, dense_mode="fast", dense_keep_ceilings=True):
         """Add review witnesses and/or dense geometry to a finished job, reusing its camera solve."""
         identifier = str(uuid.UUID(identifier))
         caps = self.capabilities()
@@ -149,6 +151,8 @@ class Client:
             if "dense_environment" not in caps.get("extend_jobs", []):
                 raise ValueError("This worker cannot add dense geometry to an existing job. Update the ComfyUI node pack.")
             inputs.update(review_witnesses=bool(review_witnesses), dense_environment=True, dense_mode=dense_mode)
+            if "dense_keep_ceilings" in caps.get("optional_inputs", []):
+                inputs.update(dense_keep_ceilings=bool(dense_keep_ceilings))
         workflow = {"1": {"class_type": "ViPEReviewJob", "inputs": inputs, "_meta": {"title": "ViPE job extension"}}}
         response = self.request("POST", "/prompt", {"prompt": workflow, "prompt_id": identifier, "client_id": "blender-vipe-" + identifier})
         if response.get("prompt_id") != identifier or response.get("node_errors"):

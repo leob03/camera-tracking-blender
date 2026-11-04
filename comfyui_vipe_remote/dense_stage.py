@@ -43,6 +43,28 @@ def read_masks(raw):
         return tuple(np.unpackbits(data[key])[:size].reshape(shape).astype(bool) for key in ('valid', 'sky', 'excluded'))
 
 
+NEAR_SKY_FACTOR = 2.5  # Ford: real sky's 5th percentile is >= 3.5x the static median; boxing's ceiling sits at ~0.9-1.0x
+
+
+def reject_mask(instance, depth, keep_ceilings):
+    """Pixels the dense stage leaves out: excluded objects and sky (instance 1 / 2).
+
+    keep_ceilings keeps "sky"-labelled pixels whose depth is within NEAR_SKY_FACTOR x the view's median static depth:
+    ViPE's sky segmentation also marks indoor ceilings, walls and pipes. Real sky is far away (or at the depth model's
+    far limit) and is still dropped. Returns (reject, kept fraction of the sky pixels).
+    """
+    reject = instance != 0
+    sky = instance == 2
+    if not keep_ceilings or not sky.any():
+        return reject, 0.0
+    finite = np.isfinite(depth) & (depth > 0)
+    static = (instance == 0) & finite
+    if not static.any():
+        return reject, 0.0
+    near = sky & finite & (depth <= NEAR_SKY_FACTOR * float(np.median(depth[static])))
+    return reject & ~near, float(near.sum() / sky.sum())
+
+
 def surface_arrays(depth, rgb, excluded, intrinsics, pose, stride):
     """Sample static pixels; reject depth edges and connect valid grid neighbors."""
     import cv2
@@ -157,6 +179,7 @@ def run(request_path, config_path):
                 if factor<1:frame=frame.resize((max(2,round(h*factor/2)*2),max(2,round(w*factor/2)*2)))
                 return frame
         fast = request['settings'].get('dense_mode', 'fast') == 'fast'
+        keep_ceilings = bool(request['settings'].get('dense_keep_ceilings', True))
         frames = RawMp4Stream(work/'plate.mp4')
         if fast:
             # Only the sampled views are kept, so depth is computed only for them: PriorDA
@@ -176,19 +199,21 @@ def run(request_path, config_path):
             k=exported[index]*np.array([w/manifest['source']['width'],h/manifest['source']['height']]*2)
             pose=frame.pose.matrix().detach().cpu().numpy()
             rgb=frame.rgb.detach().cpu().numpy()
-            arrays=surface_arrays(frame.metric_depth.detach().cpu().numpy(),rgb,frame.instance.detach().cpu().numpy()!=0,k,pose,stride)
+            metric=frame.metric_depth.detach().cpu().numpy()
+            reject,sky_kept=reject_mask(frame.instance.detach().cpu().numpy(),metric,keep_ceilings)
+            arrays=surface_arrays(metric,rgb,reject,k,pose,stride)
             data_name=f'environment/view_{index:06d}.npz'
             image_name=f'environment/plate_{index:06d}.png'
             np.savez_compressed(output/data_name,**arrays)
             Image.fromarray(np.rint(np.clip(rgb,0,1)*255).astype(np.uint8)).save(output/image_name)
             for name in [data_name,image_name]:manifest['files'][name]={'sha256':digest(output/name),'bytes':(output/name).stat().st_size}
-            views.append(dict(frame_index=index,source_frame_index=int(index+manifest['selection']['first_source_frame']),file=data_name,texture=image_name,width=w,height=h,stride=stride,intrinsics=k.tolist(),c2w=pose.tolist(),point_count=len(arrays['points']),face_count=len(arrays['faces'])))
+            views.append(dict(frame_index=index,source_frame_index=int(index+manifest['selection']['first_source_frame']),file=data_name,texture=image_name,width=w,height=h,stride=stride,intrinsics=k.tolist(),c2w=pose.tolist(),point_count=len(arrays['points']),face_count=len(arrays['faces']),near_sky_kept=round(sky_kept,4)))
             done += 1
             write_status(work,'running',f'Dense view {done}/{len(sampled)}',90)
     if digest(output/'camera.npz') != before:raise RuntimeError('Dense reconstruction changed the frozen camera')
     manifest['version']=3
     manifest['processing']['dense_depth_computed']=True
-    manifest['environment']=dict(kind='unmerged_static_depth_surfaces',model='sampled_priorda_slam_prompt' if fast else 'adaptive_unidepth-l_svda',mode='fast' if fast else 'video',views=views,point_count=sum(v['point_count'] for v in views),camera_unchanged=True,camera_sha256=before,depth_long_edge_limit=1280,filtering='Actual solve TrackAnything exclusions including sky, 5x5 dilation; finite positive depth; 8% depth-edge rejection',elapsed_seconds=time.monotonic()-started)
+    manifest['environment']=dict(kind='unmerged_static_depth_surfaces',model='sampled_priorda_slam_prompt' if fast else 'adaptive_unidepth-l_svda',mode='fast' if fast else 'video',views=views,point_count=sum(v['point_count'] for v in views),camera_unchanged=True,camera_sha256=before,depth_long_edge_limit=1280,keep_ceilings=keep_ceilings,filtering='Actual solve TrackAnything exclusions including sky'+(f' (sky-labelled pixels within {NEAR_SKY_FACTOR}x the view median depth kept: ceilings)' if keep_ceilings else '')+', 5x5 dilation; finite positive depth; 8% depth-edge rejection',elapsed_seconds=time.monotonic()-started)
     (output/'result.json').write_text(json.dumps(manifest,indent=2))
     (work/'DENSE_ENVIRONMENT.json').write_text(json.dumps(manifest['environment'],indent=2))
     print('DENSE_ENVIRONMENT_COMPLETE',manifest['environment']['point_count'],flush=True)

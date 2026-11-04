@@ -27,7 +27,7 @@ Preflight checks interfaces and configured files. A passing preflight is not an 
 python scripts/build_packages.py
 ```
 
-Extract `dist/comfyui_vipe_remote-0.5.2.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
+Extract `dist/comfyui_vipe_remote-0.5.3.zip` so that ComfyUI has `custom_nodes/comfyui_vipe_remote/__init__.py`. Copy `worker-config.example.json` to a private `worker-config.json` and set the actual paths. Use worker-local SSD scratch for `work_directory` and `evidence_cache_directory`.
 
 Set `VIPE_WORKER_CONFIG` in the ComfyUI server environment, then restart ComfyUI:
 
@@ -54,7 +54,7 @@ One prompt starts a worker process group. Camera solve, optional witnesses and o
 
 The witness cache is keyed by source SHA256 and checks recipe/checkpoint metadata; it stores independent observations, never a replacement camera. Fresh evidence currently processes the full source video (maximum 1500 source frames), even when the solve selects a shorter range. Restricting the input movie itself shortens that workload.
 
-Dense reconstruction reuses the prepared plate and actual solve masks, computes stock adaptive video depth, then samples up to 12 views. Depth processing is capped at a 1280-pixel long edge. It rejects dynamic/sky pixels, dilates exclusions, rejects depth edges and creates unmerged surfaces. The earlier 4K environment study used a higher depth resolution; visual quality is not guaranteed identical.
+Dense reconstruction reuses the prepared plate and actual solve masks, computes stock adaptive video depth, then samples up to 12 views. Depth processing is capped at a 1280-pixel long edge. It rejects dynamic pixels and distant sky (sky-labelled pixels within 2.5x the view's median depth, such as indoor ceilings, are kept unless Keep ceilings is off), dilates exclusions, rejects depth edges and creates unmerged surfaces. The earlier 4K environment study used a higher depth resolution; visual quality is not guaranteed identical.
 
 Jobs keep logs, request/configuration artifacts, camera/native-map outputs and stage timings on local scratch. There is no automatic disk retention policy yet. Stop jobs before manually cleaning their directories. Completed downloads can be reimported without the server; service restarts do not guarantee queued/running jobs survive.
 

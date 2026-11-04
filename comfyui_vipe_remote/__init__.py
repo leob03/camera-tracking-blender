@@ -115,7 +115,7 @@ def validate_settings(values):
         raise ValueError("Declare both plate width and height, or neither.")
 
 
-OPTIONAL_INPUTS = {"review_witnesses": ("BOOLEAN", {"default": False}), "dense_environment": ("BOOLEAN", {"default": False}), "dense_mode": (["fast", "video"], {"default": "fast"}), "lens_distortion": ("BOOLEAN", {"default": False}), "plate_width": ("INT", {"default": 0, "min": 0}), "plate_height": ("INT", {"default": 0, "min": 0})}
+OPTIONAL_INPUTS = {"review_witnesses": ("BOOLEAN", {"default": False}), "dense_environment": ("BOOLEAN", {"default": False}), "dense_mode": (["fast", "video"], {"default": "fast"}), "dense_keep_ceilings": ("BOOLEAN", {"default": True}), "lens_distortion": ("BOOLEAN", {"default": False}), "plate_width": ("INT", {"default": 0, "min": 0}), "plate_height": ("INT", {"default": 0, "min": 0})}
 OPTIONAL_DEFAULTS = {name: spec[1]["default"] for name, spec in OPTIONAL_INPUTS.items()}
 
 
@@ -230,7 +230,7 @@ class ViPEReviewJob:
     """Add review witnesses and/or dense geometry to an existing job without solving again."""
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"parent_job_id": ("STRING", {"default": ""}), "request_id": ("STRING", {"default": ""})}, "optional": {"review_witnesses": ("BOOLEAN", {"default": True}), "dense_environment": ("BOOLEAN", {"default": False}), "dense_mode": (["fast", "video"], {"default": "fast"})}}
+        return {"required": {"parent_job_id": ("STRING", {"default": ""}), "request_id": ("STRING", {"default": ""})}, "optional": {"review_witnesses": ("BOOLEAN", {"default": True}), "dense_environment": ("BOOLEAN", {"default": False}), "dense_mode": (["fast", "video"], {"default": "fast"}), "dense_keep_ceilings": ("BOOLEAN", {"default": True})}}
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("result_bundle",)
@@ -242,7 +242,7 @@ class ViPEReviewJob:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def review(self, parent_job_id, request_id, review_witnesses=True, dense_environment=False, dense_mode="fast"):
+    def review(self, parent_job_id, request_id, review_witnesses=True, dense_environment=False, dense_mode="fast", dense_keep_ceilings=True):
         parent, identifier = job_id(parent_job_id), job_id(request_id)
         parent_work = work_path(parent)
         parent_request = json.loads((parent_work / "request.json").read_text(encoding="utf-8"))
@@ -271,7 +271,7 @@ class ViPEReviewJob:
                     os.link(parent_work / name, work / name)
                 except OSError:
                     shutil.copyfile(parent_work / name, work / name)
-        settings = {**parent_request["settings"], "review_witnesses": witnesses, "dense_environment": dense, "dense_mode": dense_mode}
+        settings = {**parent_request["settings"], "review_witnesses": witnesses, "dense_environment": dense, "dense_mode": dense_mode, "dense_keep_ceilings": bool(dense_keep_ceilings)}
         request = {**parent_request, "job_id": identifier, "output": str(output), "settings": settings, "review_of": parent}
         return run_worker(identifier, request, output)
 
