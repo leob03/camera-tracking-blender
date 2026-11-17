@@ -179,7 +179,9 @@ def prepare_plate(source, plate, cfg, first, end, fps, width, height):
     fps = Fraction(fps)
     time_base = f"{fps.denominator}/{fps.numerator}"
     filters = f"trim=start_frame={first}:end_frame={end},settb=expr={time_base},setpts=N,scale={width}:{height}:flags=area"
-    subprocess.run([cfg["ffmpeg"], "-v", "error", "-threads", "2", "-noautorotate", "-i", str(source), "-map", "0:v:0", "-vf", filters, "-an", "-fps_mode", "passthrough", "-enc_time_base", time_base, "-frames:v", str(end - first), "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "16", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(plate)], check=True)
+    # The MP4 track timescale must be a multiple of the frame rate. With the muxer's default timescale, the
+    # B-frame edit list is rounded and can cut the last frame (e.g. 88 frames at 30 fps decode as 87).
+    subprocess.run([cfg["ffmpeg"], "-nostdin", "-v", "error", "-threads", "2", "-noautorotate", "-i", str(source), "-map", "0:v:0", "-vf", filters, "-an", "-fps_mode", "passthrough", "-enc_time_base", time_base, "-video_track_timescale", str(fps.numerator), "-frames:v", str(end - first), "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "16", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(plate)], check=True)
     prepared = probe_video(plate, cfg["ffprobe"], decode_frames=True)
     if int(prepared["nb_frames"]) != end - first:
         raise ValueError(f"Video preparation produced {prepared['nb_frames']} decoded frames; expected {end - first} for source frames {first + 1}–{end}.")
