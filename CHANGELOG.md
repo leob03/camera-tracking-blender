@@ -1,5 +1,11 @@
 # Changes
 
+## ComfyUI node pack 0.5.2
+
+- Fix camera jobs failing with "Video preparation produced 87 decoded frames; expected 88" on some clips. The prepared plate's MP4 edit list was rounded at the muxer's default track timescale and cut the last frame; it depends only on frame rate and frame count (e.g. 88 frames at 30 fps, 61 at 24 fps, 100 at 60 fps). The plate now uses a timescale that is a multiple of the frame rate.
+- Plates that already prepared correctly are frame- and timestamp-identical (framemd5), so existing camera solves are still reused.
+- ffmpeg no longer reads standard input during preparation.
+
 ## Blender add-on 0.6.1
 
 - The add-on is now called **Camera Track** (sidebar tab, panel, Preferences). New imports are named `Camera Track | <shot> | <job>` with a **Camera Track alignment** object; scenes and settings from earlier versions keep working.

@@ -1,7 +1,10 @@
 """Display-frame indexing and cadence must not trust MP4 sample-count metadata."""
 from fractions import Fraction
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -63,6 +66,22 @@ class VideoPreparationTests(unittest.TestCase):
         with patch('worker.subprocess.run'),patch('worker.probe_video',return_value={'nb_frames':'2'}):
             with self.assertRaisesRegex(ValueError,'produced 2 decoded frames; expected 3'):
                 prepare_plate('source','output',dict(ffmpeg='ffmpeg',ffprobe='ffprobe'),0,3,Fraction(60),64,32)
+
+
+@unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'needs ffmpeg and ffprobe on PATH')
+class PreparedPlateFrameCountTests(unittest.TestCase):
+    """Real ffmpeg: these frame counts lost their last frame to the MP4 edit list before the timescale fix."""
+
+    def test_last_frame_is_kept(self):
+        cfg = dict(ffmpeg=shutil.which('ffmpeg'), ffprobe=shutil.which('ffprobe'))
+        for fps, count in [(30, 88), (24, 61), (60, 100), (Fraction(30000, 1001), 137)]:
+            with self.subTest(fps=str(fps), frames=count), tempfile.TemporaryDirectory() as directory:
+                source, plate = Path(directory) / 'source.mp4', Path(directory) / 'plate.mp4'
+                subprocess.run([cfg['ffmpeg'], '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', f'testsrc2=size=64x48:rate={fps}',
+                                '-frames:v', str(count), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(source)], check=True)
+                prepared = prepare_plate(source, plate, cfg, 0, count, Fraction(fps), 64, 48)
+                self.assertEqual(int(prepared['nb_frames']), count)
+                self.assertEqual(Fraction(prepared['avg_frame_rate']), Fraction(fps))
 
 
 if __name__=='__main__':unittest.main()
