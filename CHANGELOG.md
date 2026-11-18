@@ -1,5 +1,11 @@
 # Changes
 
+## Blender add-on 0.6.2 / ComfyUI node pack 0.5.3
+
+- **Keep ceilings** (Dense environment option, on by default). ViPE's sky detector also labels indoor ceilings, walls and pipes as sky (boxing: 62% of the frame), so the dense environment, and with it the Gaussian splat's starting points, lost most of the room. Sky-labelled pixels whose depth is within 2.5x the view's median scene depth are now kept; distant real sky (Ford: 3.5-45x the median) is still left out. In the splat study, boxing went from 87k to 472k Gaussians with a visibly more solid ceiling.
+- The dense manifest records the setting and, per view, the fraction of sky-labelled pixels kept.
+- Older workers ignore the option (they keep dropping all sky); the camera solve and its reuse are unaffected.
+
 ## ComfyUI node pack 0.5.2
 
 - Fix camera jobs failing with "Video preparation produced 87 decoded frames; expected 88" on some clips. The prepared plate's MP4 edit list was rounded at the muxer's default track timescale and cut the last frame; it depends only on frame rate and frame count (e.g. 88 frames at 30 fps, 61 at 24 fps, 100 at 60 fps). The plate now uses a timescale that is a multiple of the frame rate.

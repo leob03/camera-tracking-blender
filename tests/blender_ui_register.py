@@ -77,7 +77,7 @@ log = draw_all()
 assert 'Worker not checked' in log and 'op:vipe_remote.submit' in log and 'list:vipe_jobs' in log
 assert 'op:vipe_remote.set_floor' not in log  # Results only with an imported job.
 assert not any('reconstruction hypotheses' in line for line in log)
-assert 'prop:lens_distortion' in log and 'prop:dense_mode' not in log
+assert 'prop:lens_distortion' in log and 'prop:dense_mode' not in log and 'prop:dense_keep_ceilings' not in log
 props.lens_mode = 'fixed'; assert 'prop:lens_distortion' not in draw_all() and 'prop:focal_mm' in draw_all()
 props.lens_mode = 'auto'
 
@@ -89,8 +89,8 @@ settings = addon.settings_from_properties(props)
 assert settings['lens_distortion'] is False and 'dense_mode' not in settings and settings['sensor_mm'] == props.sensor_mm
 props.lens_distortion = True; props.dense_environment = True
 settings = addon.settings_from_properties(props)
-assert settings['lens_distortion'] is True and settings['dense_mode'] == 'fast'
-assert 'Dense does not support lens distortion yet' in draw_all()
+assert settings['lens_distortion'] is True and settings['dense_mode'] == 'fast' and settings['dense_keep_ceilings'] is True
+assert 'Dense does not support lens distortion yet' in draw_all() and 'prop:dense_keep_ceilings' in draw_all()
 props.lens_mode = 'fixed'; assert addon.settings_from_properties(props)['lens_distortion'] is False
 props.lens_mode = 'auto'
 
@@ -247,7 +247,7 @@ try:
     deadline = time.monotonic() + 10
     while addon._active is not None:
         addon._poll(); time.sleep(.02); assert time.monotonic() < deadline
-    assert submitted == [(PARENT, dense_id, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': props.dense_mode})], submitted
+    assert submitted == [(PARENT, dense_id, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': props.dense_mode, 'dense_keep_ceilings': props.dense_keep_ceilings})], submitted
     assert props.job_id == PARENT and props.status.startswith(f'Dense environment added to job {PARENT[:8]}'), props.status
     # Show / Hide Dense Environment toggles the job's dense layer.
     group = bpy.data.collections.new('05 Dense environment'); group['vipe_role'] = 'dense_environment_group'; collection.children.link(group)

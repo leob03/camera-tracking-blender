@@ -122,6 +122,7 @@ class ViPERemoteProperties(bpy.types.PropertyGroup):
     review_witnesses: BoolProperty(name="Review witnesses", default=False, description="Run CoTracker and place the original review crosses; assesses the frozen camera without improving its solve")
     dense_environment: BoolProperty(name="Dense environment reconstruction", default=False, description="Compute post-SLAM video depth and accumulate static colored surfaces; adds processing time")
     dense_mode: EnumProperty(name="Dense depth", items=[('fast', "Sampled views (fast)", "Depth for the sampled dense views only"), ('video', "Full video depth (slow, original)", "Video depth for the whole selection, as in earlier versions")], default='fast')
+    dense_keep_ceilings: BoolProperty(name="Keep ceilings", default=True, description="Keep nearby surfaces that the sky detector labels as sky (indoor ceilings, walls, roofs, pipes) in the dense environment and the splat's starting points; distant real sky is still left out")
     splat_preset: EnumProperty(name="Splat quality", items=[
         ('quick', "Quick preview", "About 5 minutes on a 16 GB GPU: 10k steps, 1536 px from the uploaded solve plate, up to 1M Gaussians"),
         ('quality', "Quality", "About 30-35 minutes for 300 frames: full 30k-step schedule, 2048 px (EXR plates upload a 2048 px training plate), up to 3M Gaussians")], default='quick')
@@ -180,6 +181,7 @@ def settings_from_properties(props):
     settings['lens_distortion'] = props.lens_distortion and props.lens_mode == 'auto'
     if props.dense_environment:
         settings['dense_mode'] = props.dense_mode
+        settings['dense_keep_ceilings'] = props.dense_keep_ceilings
     return settings
 
 
@@ -660,7 +662,7 @@ class VIPE_OT_add_dense(bpy.types.Operator):
             return False
         return True
     def execute(self, context):
-        return _launch_extension(self, context, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': context.scene.vipe_remote.dense_mode}, 'Submitting dense job')
+        return _launch_extension(self, context, {'review_witnesses': False, 'dense_environment': True, 'dense_mode': context.scene.vipe_remote.dense_mode, 'dense_keep_ceilings': context.scene.vipe_remote.dense_keep_ceilings}, 'Submitting dense job')
 
 
 SPLAT_KEYS = ('splat_iterations', 'splat_max_dimension', 'splat_frame_step', 'splat_max_gaussians')
@@ -1402,6 +1404,7 @@ class VIPE_PT_outputs(_SubPanel, bpy.types.Panel):
         layout.prop(props, 'dense_environment')
         if props.dense_environment:
             layout.prop(props, 'dense_mode', text='')
+            layout.prop(props, 'dense_keep_ceilings')
         _hint(layout, 'Fast mode: about 1–2 min extra' if props.dense_mode == 'fast' else 'Full video depth adds much more time', width)
         if props.dense_environment and props.lens_distortion and props.lens_mode == 'auto':
             row = layout.row()
