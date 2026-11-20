@@ -70,11 +70,11 @@ class VideoPreparationTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'needs ffmpeg and ffprobe on PATH')
 class PreparedPlateFrameCountTests(unittest.TestCase):
-    """Real ffmpeg: these frame counts lost their last frame to the MP4 edit list before the timescale fix."""
+    """Real ffmpeg: these frame counts lost their last frame to the MP4 edit list (timescale fix in 0.5.2, no edit list in 0.5.4)."""
 
     def test_last_frame_is_kept(self):
         cfg = dict(ffmpeg=shutil.which('ffmpeg'), ffprobe=shutil.which('ffprobe'))
-        for fps, count in [(30, 88), (24, 61), (60, 100), (Fraction(30000, 1001), 137)]:
+        for fps, count in [(30, 88), (24, 61), (60, 100), (Fraction(30000, 1001), 137), (Fraction(24000, 1001), 97), (Fraction(2997, 100), 137)]:
             with self.subTest(fps=str(fps), frames=count), tempfile.TemporaryDirectory() as directory:
                 source, plate = Path(directory) / 'source.mp4', Path(directory) / 'plate.mp4'
                 subprocess.run([cfg['ffmpeg'], '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', f'testsrc2=size=64x48:rate={fps}',
