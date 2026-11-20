@@ -1,5 +1,10 @@
 # Changes
 
+## ComfyUI node pack 0.5.4
+
+- Fix camera jobs failing with "Video preparation produced N-1 decoded frames" on 23.976 and 29.97 fps plates (for example 97 frames at 24000/1001, or the 137-frame 29.97 fps barnab clip). 0.5.2 fixed the same symptom at whole-number frame rates, but the MP4 edit list is also rounded at the movie timescale (1/1000 s), which still cut the last frame at fractional rates. The prepared plate is now written without an edit list; it is read frame by frame, so nothing else changes.
+- Existing camera solves are still reused: reuse is keyed on the source and the solve settings, and a reused solve keeps its own prepared plate.
+
 ## Blender add-on 0.6.2 / ComfyUI node pack 0.5.3
 
 - **Keep ceilings** (Dense environment option, on by default). ViPE's sky detector also labels indoor ceilings, walls and pipes as sky (boxing: 62% of the frame), so the dense environment, and with it the Gaussian splat's starting points, lost most of the room. Sky-labelled pixels whose depth is within 2.5x the view's median scene depth are now kept; distant real sky (Ford: 3.5-45x the median) is still left out. In the splat study, boxing went from 87k to 472k Gaussians with a visibly more solid ceiling.
